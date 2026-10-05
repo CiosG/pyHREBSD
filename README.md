@@ -18,6 +18,7 @@ correlation, raw-pattern preprocessing, and homography fitting.
 
 - processed 8-bit and unprocessed 16-bit H5OINA pattern stacks;
 - direct per-point PC from `EBSD/Data` or `Data Processing/Data`;
+- full Oxford detector geometry from the three detector Euler angles;
 - optional pattern binning and raw-pattern background correction;
 - CPU and CUDA implementations of ROI and homography registration;
 - strain, stress, and lattice-rotation maps;
@@ -53,14 +54,17 @@ driver and CUDA runtime. CPU mode never imports CuPy.
 
 ## First analysis
 
-1. Copy `run_pyhrebsd.py` if you want to preserve a configuration for a
-   particular experiment.
-2. Set `h5oina_file`, `h5_pattern_type`, `h5_pc_source`, `material_name`, and
-   `reference_map_point` in its `CONFIG` block.
-3. Start with `analysis_method="roi"`, CPU devices, `workers=1`, and a short
-   `scan_indices` list. Inspect the output before processing the entire map.
-4. Select a new `output_dir` for every run; PyHREBSD refuses to silently
-   overwrite completed analyses.
+1. Open `run_pyhrebsd.py` and edit the required settings at the top of its
+   `CONFIG` block.
+2. Set `h5oina_file`, a new `output_dir`, `analysis_method`,
+   `h5_pattern_type`, `h5_pc_source`, `pc_mode`, `material_name`,
+   `reference_map_point`, and `pattern_binning`.
+3. Leave geometry overrides as `None` to read sample tilt, reference
+   orientation, and detector orientation from H5OINA. The default
+   `detector_geometry="full"` uses all three detector Euler angles.
+4. Select `"cpu"` or `"gpu"` separately for the chosen registration method.
+   CPU analysis defaults to the number of logical processors minus one;
+   set `workers=1` when validating a new configuration.
 
 Run the configured analysis with:
 
@@ -68,11 +72,42 @@ Run the configured analysis with:
 python run_pyhrebsd.py
 ```
 
-The default configuration is intentionally portable: it expects
-`scan.h5oina`, uses processed patterns, direct H5 PC values, the bundled
-HDF5 silicon constants, ROI analysis, and CPU execution. Elastic
-constants, their verification status, and literature references are stored in
-`pyhrebsd/materials.h5`; see [the material database notes](docs/materials.md).
+The default configuration expects `scan.h5oina`, uses processed patterns,
+direct H5 PC values, the bundled HDF5 silicon constants, ROI analysis, and CPU
+execution. It analyzes the complete map, including the reference point.
+Elastic constants, their verification status, and literature references are
+stored in `pyhrebsd/materials.h5`; see
+[the material database notes](docs/materials.md).
+
+## Beam-shift calibration
+
+Use a separate strain-free single-crystal scan acquired with the same detector
+resolution, geometry, SEM conditions, and scan convention as the analysis.
+Set the common H5 settings once and change:
+
+```python
+"run_mode": "calibration",
+"h5oina_file": r"path\to\calibration.h5oina",
+"output_dir": "beam_shift_calibration",
+"reference_map_point": (0, 0),
+```
+
+Calibration correlates every point in the complete map row containing the
+reference point. With `reference_map_point=(0, 0)` this is the entire first
+row. The row must contain at least seven points. The output JSON reports
+`effective_pixel_size_um_per_pixel` and `detector_x_shift_sign`.
+
+For the subsequent analysis, select its H5OINA file and set:
+
+```python
+"run_mode": "analysis",
+"pc_mode": "beam_shift_eps",
+"beam_shift_effective_pixel_size_um": 4.123,  # value from calibration JSON
+"beam_shift_detector_x_sign": -1,             # value from calibration JSON
+```
+
+The external effective pixel size replaces the scan-X PC drift. The absolute
+PC and the remaining PC gradients still come from the selected H5 source.
 
 For a direct two-image ROI shift measurement:
 
@@ -82,8 +117,10 @@ python -m pyhrebsd reference.tif scan.tif --roi-size 256 --roi-count 48 --output
 
 ## Outputs
 
-Full-map analysis writes `scan_results.csv` and `run_settings.json` plus
-optional per-pattern ROI data. Plotting utilities include:
+Full-map analysis writes `scan_results.csv` plus optional per-pattern ROI
+data. Beam-shift calibration writes `beam_shift_calibration.json`,
+`beam_shift_line.csv`, and `beam_shift_calibration.png`. Plotting utilities
+include:
 
 ```powershell
 python plot_scan.py results_roi_cpu/scan_results.csv --output-dir results_roi_cpu/maps
@@ -113,8 +150,8 @@ correlation, remapping, and homography are listed in
 ## Origin and attribution
 
 Some routines were developed using OpenXY as a source reference. Its license
-permits modification and redistribution with attribution. The
-exact origins and retained notices are documented in
+permits modification and redistribution with attribution. The exact origins
+and retained notices are documented in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with complete license texts
 in `third_party_licenses/`.
 

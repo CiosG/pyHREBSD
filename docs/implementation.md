@@ -150,6 +150,8 @@ pattern. A strained or rotated reference shifts the zero of every map.
 Pattern-center calibration can estimate an effective beam-shift pixel size on
 a separate strain-free single-crystal scan. Use the same detector resolution,
 geometry, SEM conditions, and scan convention for calibration and analysis.
+The calibration uses every pattern in the complete map row containing
+`reference_map_point`; a reference at `(0, 0)` therefore uses the first row.
 
 For a new instrument or acquisition recipe:
 
@@ -158,7 +160,7 @@ For a new instrument or acquisition recipe:
 3. validate tensor signs and axes on a known deformation;
 4. compare CPU and GPU results on a small point set;
 5. compare binned and unbinned maps using common masks and color scales;
-6. keep every run's `run_settings.json` with its result CSV.
+6. keep a copy of the configured `run_pyhrebsd.py` with each result CSV.
 
 ## Scientific origins
 
