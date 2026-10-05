@@ -2,6 +2,7 @@
 
 import csv
 import json
+import os
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -36,9 +37,7 @@ CONFIG = {
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
 
     # Optional H5, material, and PC overrides.
-    "h5_scan_group": None,  # e.g. "1"; required only if the file has multiple EBSD groups
     "material_database": "pyhrebsd/materials.h5",
-    "h5_pc_calibration_pattern_side": None,  # set 1024 only when PC was calibrated at 1024x1024
     "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width
     "beam_shift_effective_pixel_size_um": None,  # required only for pc_mode="beam_shift_eps"
     "beam_shift_detector_x_sign": "auto",  # H5 PC slope sign; or copy -1/+1 from calibration
@@ -46,11 +45,11 @@ CONFIG = {
     # Optional geometry overrides; None reads the value from H5.
     "detector_geometry": "full",  # "full" uses all three detector Euler angles; "elevation" uses one
     "reference_euler_degrees": None,
-    "sample_tilt_degrees": None,
-    "camera_elevation_degrees": None,
+    "sample_tilt_degrees": None,  # None reads Tilt Angle from H5
+    "camera_elevation_degrees": None,  # None reads detector Euler Phi - 90 degrees
 
     # Optional execution and output settings.
-    "workers": 1,  # CPU workers; increase after validating a short run
+    "workers": max(1, (os.cpu_count() or 2) - 1),  # logical CPU cores minus one
     "save_per_pattern_files": False,  # full scan normally goes to one summary CSV
 
     # Optional ROI-method settings.
