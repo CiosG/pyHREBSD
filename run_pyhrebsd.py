@@ -62,6 +62,7 @@ CONFIG = {
     "roi_count": 48,  # center ROI plus 47 equally spaced ring ROIs
     "roi_remapping": True,  # two-pass projective back-rotation
     "roi_filter": (2.0, 50.0, True, True),  # OpenXY default: low/high FFT radius and softened edges
+    # Reject an ROI when corrected dx or dy exceeds this many standard deviations from the mean.
     "outlier_standard_deviation": 2.0,
 
     # Optional homography-method settings.
