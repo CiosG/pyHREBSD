@@ -21,13 +21,64 @@ from pyhrebsd.rotations import sample_rotation_vector_mrad
 
 # -------------------------- CONFIG: edit these values --------------------------
 CONFIG = {
+    # Required: select the run and its input/output.
     "run_mode": "analysis",  # "analysis" or "calibration" on a separate strain-free single-crystal scan
-    # Paths are relative to this file, or may be absolute.
-    "h5oina_file": "scan.h5oina",
-    "h5_scan_group": None,  # e.g. "1"; required if the file has multiple EBSD groups
+    "h5oina_file": "scan.h5oina",  # relative to this file, or an absolute path
+    "output_dir": "results_roi_cpu",  # must be new; existing results are not overwritten
+
+    # Required for run_mode="analysis".
+    "analysis_method": "roi",  # "roi" or whole-pattern "homography"
     "h5_pattern_type": "processed",  # 8-bit patterns; "unprocessed" selects raw 16-bit patterns
+    "h5_pc_source": "ebsd",  # "ebsd" = EBSD/Data; "data_processing" = Data Processing/Data
+    "pc_mode": "h5",  # direct per-point PC; "affine" fits a plane to the selected H5 PC
+    "material_name": "silicon",  # database key or the full material name
+    "reference_map_point": (0, 0),  # zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
-    # Raw-pattern correction is used only when h5_pattern_type="unprocessed".
+
+    # Optional H5, material, and PC overrides.
+    "h5_scan_group": None,  # e.g. "1"; required only if the file has multiple EBSD groups
+    "material_database": "pyhrebsd/materials.h5",
+    "h5_pc_calibration_pattern_side": None,  # set 1024 only when PC was calibrated at 1024x1024
+    "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width
+    "beam_shift_effective_pixel_size_um": None,  # required only for pc_mode="beam_shift_eps"
+    "beam_shift_detector_x_sign": "auto",  # H5 PC slope sign; or copy -1/+1 from calibration
+
+    # Optional geometry overrides; None reads the value from H5.
+    "detector_geometry": "full",  # "full" uses all three detector Euler angles; "elevation" uses one
+    "reference_euler_degrees": None,
+    "sample_tilt_degrees": None,
+    "camera_elevation_degrees": None,
+
+    # Optional execution and output settings.
+    "workers": 1,  # CPU workers; increase after validating a short run
+    "save_per_pattern_files": False,  # full scan normally goes to one summary CSV
+
+    # Optional ROI-method settings.
+    "roi_device": "cpu",  # set "gpu" after installing matching CuPy
+    "roi_gpu_device_id": 0,
+    "roi_gpu_workers": 4,
+    "roi_layout": "annular",  # center plus one circular ring; "grid" uses a square layout
+    "roi_size": None,  # explicit pixel override; None uses roi_size_percent
+    "roi_size_percent": 25.0,  # ROI width as a percentage of pattern width
+    "roi_count": 48,  # center ROI plus 47 equally spaced ring ROIs
+    "roi_remapping": True,  # two-pass projective back-rotation
+    "roi_filter": (2.0, 50.0, True, True),  # OpenXY default: low/high FFT radius and softened edges
+    "outlier_standard_deviation": 2.0,
+
+    # Optional homography-method settings.
+    "homography_device": "cpu",  # set "gpu" after installing matching CuPy
+    "homography_gpu_device_id": 0,
+    "homography_gpu_workers": 4,
+    "homography_margin_fraction": 0.08,
+    "homography_max_iterations": 250,  # upper limit; fitting stops on convergence
+
+    # Optional grain segmentation.
+    "detect_grains": True,
+    "grain_threshold_degrees": 5.0,
+    "grain_min_size": 5,
+    "grain_symmetry": "cubic",  # use "none" only if crystal symmetry is unknown
+
+    # Optional raw-pattern correction; used only for h5_pattern_type="unprocessed".
     # "static_lmsd" divides every full detector pattern by the single image at
     # /<scan>/EBSD/Header/Unprocessed Static Background, removes a Gaussian
     # background, applies local mean/std normalization, and then crops/bins.
@@ -40,45 +91,10 @@ CONFIG = {
     "unprocessed_static_sigma_factor": 0.02,  # Gaussian sigma = width * factor
     "unprocessed_lmsd_factor": 0.183,  # LMSD radius = int(width * factor)
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
-    "h5_pc_source": "ebsd",  # "ebsd" = EBSD/Data; "data_processing" = Data Processing/Data
-    "h5_pc_calibration_pattern_side": None,  # None: H5 PC uses original pattern side; set 1024 if PC was calibrated at 1024x1024
-    "analysis_method": "roi",  # "roi" or whole-pattern "homography"
-    "roi_device": "cpu",  # set "gpu" after installing matching CuPy
-    "roi_gpu_device_id": 0,
-    "roi_gpu_workers": 4,  # measured fastest of 1, 2, 4 on RTX 3070
-    "homography_device": "cpu",  # set "gpu" after installing matching CuPy
-    "homography_gpu_device_id": 0,
-    "homography_gpu_workers": 4,  # measured fastest of 1, 2, 4, 8 on RTX 3070
-    "homography_margin_fraction": 0.08,
-    "homography_max_iterations": 250,  # upper limit only; the fit stops on convergence
-    "detect_grains": True,  # segments H5 Euler/Phase map; keeps the one-reference analysis
-    "grain_threshold_degrees": 5.0,
-    "grain_min_size": 5,
-    "grain_symmetry": "cubic",  # silicon; use "none" only if crystal symmetry is unknown
-    "pc_mode": "h5",  # direct per-point PC; "affine" fits a plane to the selected H5 PC
-    "beam_shift_effective_pixel_size_um": None,  # positive um/pixel from calibration output
-    "beam_shift_detector_x_sign": "auto",  # H5 PC slope sign; or copy -1/+1 from calibration
-    # Used only with run_mode="calibration"; all H5 settings above are shared.
+
+    # Optional calibration settings; used only for run_mode="calibration".
     "calibration_line_extent_um": 100.0,
     "calibration_line_spacing": 1,
-    "reference_map_point": (0, 0),  # zero-based (column, row); one reference for the whole scan
-    "save_per_pattern_files": False,  # full scan goes to one summary CSV
-    "workers": 1,  # increase after validating the configuration on a short scan
-    "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width; only if HDF5 PC is absent
-    "output_dir": "results_roi_cpu",  # use a new directory for every run
-    "material_database": "pyhrebsd/materials.h5",
-    "material_name": "silicon",  # database key or the full material name
-    "reference_euler_degrees": None,  # None reads the reference orientation from H5
-    "sample_tilt_degrees": None,  # H5 mode: None reads Tilt Angle from the file
-    "camera_elevation_degrees": None,  # H5 mode: None reads detector Euler Phi - 90 degrees
-    "detector_geometry": "full",  # "full" uses all three detector Euler angles; "elevation" uses one
-    "roi_layout": "annular",  # center plus one circular ring; "grid" uses a square layout
-    "roi_size": None,  # explicit pixel override; None uses roi_size_percent
-    "roi_size_percent": 25.0,  # ROI width as a percentage of pattern width
-    "roi_count": 48,  # center ROI plus 47 equally spaced ring ROIs
-    "roi_remapping": True,  # two-pass projective back-rotation; used only by ROI analysis
-    "roi_filter": (2.0, 50.0, True, True),  # low, high, soften low/high; None disables
-    "outlier_standard_deviation": 2.0,
 }
 # -------------------------------------------------------------------------------
 
