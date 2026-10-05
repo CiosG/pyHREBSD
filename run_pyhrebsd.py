@@ -49,7 +49,7 @@ CONFIG = {
     "camera_elevation_degrees": None,  # None reads detector Euler Phi - 90 degrees
 
     # Optional execution and output settings.
-    "workers": max(1, (os.cpu_count() or 2) - 1),  # logical CPU cores minus one
+    "workers": max(1, (os.cpu_count() or 2) - 1),  # logical CPU cores minus one or set value by hand
     "save_per_pattern_files": False,  # full scan normally goes to one summary CSV
 
     # Optional ROI-method settings.
