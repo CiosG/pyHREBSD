@@ -1,0 +1,75 @@
+PyHREBSD Source-Available No-Resale License 1.0
+
+Copyright (c) 2026 Grzegorz Cios, AGH University of Krakow
+
+1. Grant of permission
+
+Subject to this license, the copyright holders grant you a worldwide,
+royalty-free, non-exclusive, non-transferable license to use, reproduce, and
+modify the original PyHREBSD software for lawful internal, research,
+educational, evaluation, and governmental purposes. This permission applies
+to individuals and to organizations, including businesses and publicly or
+privately funded research institutions.
+
+You may distribute the original software or your modifications without
+charge, provided that you:
+
+  a. include this license and all copyright and third-party notices;
+  b. clearly identify modified files and significant changes; and
+  c. license your modifications to PyHREBSD under these same terms.
+
+You may publish, license, or sell measurements, figures, reports, scientific
+conclusions, and other results produced with PyHREBSD. You may also charge for
+research or consulting performed with PyHREBSD, provided that the customer is
+not sold a copy of, or access to, the software itself.
+
+2. No resale
+
+Without prior written permission from the copyright holders, you may not:
+
+  a. sell, rent, lease, sublicense for a fee, or otherwise transfer for
+     consideration the software, a substantial portion of it, or a modified
+     version of it;
+  b. include the software or a substantial portion of it in a product whose
+     sale or license fee includes access to PyHREBSD functionality; or
+  c. provide third parties with paid hosted or managed access to a substantial
+     portion of PyHREBSD functionality.
+
+Reasonable charges that only cover physical media, copying, or delivery costs
+do not count as resale.
+
+3. Separate commercial license
+
+The copyright holders may grant separate written licenses for activities
+restricted by section 2. Requests should be directed to the owner of the
+official PyHREBSD repository.
+
+4. Third-party material
+
+This license applies only to original PyHREBSD material. OpenXY, its files,
+and all other third-party components remain subject to their own
+licenses. See THIRD_PARTY_NOTICES.md and third_party_licenses/.
+
+5. Notices and names
+
+You may not remove or obscure copyright, attribution, or license notices. No
+license is granted to use the names or marks of PyHREBSD contributors, OpenXY,
+its authors, or their institutions to imply endorsement.
+
+6. Termination
+
+Your rights under this license terminate automatically if you materially
+violate its terms. They are reinstated if you correct the violation within 30
+days after receiving written notice, unless this is a repeated violation.
+
+7. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+This is a source-available license and is not an Open Source Initiative
+approved open-source license.

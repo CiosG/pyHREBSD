@@ -1,0 +1,171 @@
+# PyHREBSD implementation notes
+
+PyHREBSD measures the projective displacement between an EBSD reference
+pattern and every pattern in a scan, then converts that displacement into a
+deformation gradient, elastic strain, lattice rotation, and stress.
+
+All map coordinates and pattern indices in the Python API are zero-based.
+Configuration angles are in degrees. Pattern centers use fractions of the
+uncropped detector width unless a function explicitly documents pixel units.
+
+## H5OINA input
+
+`H5OINAReader` reads one pattern at a time and does not load the entire stack
+into memory. `pattern_type="processed"` selects the processed 8-bit stack;
+`"unprocessed"` selects the raw stack. Rectangular patterns are cropped to a
+centered square for correlation, and the pattern center is transformed to the
+cropped detector coordinates.
+
+Per-point pattern centers can be selected from either `/<scan>/EBSD/Data` or
+`/<scan>/Data Processing/Data`. The selected source is recorded in the output.
+`pc_mode="h5"` uses every stored PC directly. `pc_mode="affine"` robustly fits
+a scan-position plane to the selected values. External beam-shift calibration
+replaces only the calibrated PC gradient; it does not independently determine
+the absolute PC.
+
+When no explicit overrides are supplied, sample tilt and the full Oxford
+detector orientation are read from the H5OINA header. Euler orientations use
+the Bunge convention implemented in `pyhrebsd.geometry`.
+
+### Unprocessed-pattern background correction
+
+Background correction is applied only when
+`h5_pattern_type="unprocessed"`. Processed patterns bypass this entire stage.
+The selected `unprocessed_background_mode` has the following behavior:
+
+- `static_lmsd` uses the static detector background embedded at
+  `/<scan>/EBSD/Header/Unprocessed Static Background`;
+- `divide_gaussian` estimates a broad background independently for every
+  pattern and divides the pattern by it;
+- `subtract_gaussian` estimates a broad background independently for every
+  pattern and subtracts it;
+- `none` returns the unprocessed intensities without background correction.
+
+For `static_lmsd`, the H5 dataset must be a single two-dimensional image with
+the same full rectangular shape as every unprocessed detector pattern. It is
+loaded once when an analysis context is created and reused for the reference
+and all target patterns. Parallel worker processes each create their own
+reader and load their own copy once. A missing dataset or a shape mismatch is
+an error; PyHREBSD does not silently substitute a generated background.
+
+The `static_lmsd` pipeline is executed in this order:
+
+1. Convert the full, uncropped raw pattern and static background to floating
+   point. Replace zero background pixels by `1e-6` to avoid division by zero.
+2. Divide the raw pattern by the static background.
+3. Gaussian-smooth the divided image with
+   `sigma = detector_width * unprocessed_static_sigma_factor` and subtract
+   that smooth image.
+4. Calculate the local mean and standard deviation in a square window with
+   `radius = int(detector_width * unprocessed_lmsd_factor)` and side length
+   `2 * radius + 1`. Replace each residual pixel by its local z-score;
+   neighborhoods with standard deviation below `1e-8` produce zero.
+5. Map the 1st and 99th percentiles of the normalized image to 0 and 65535,
+   clip values outside that interval, and return `uint16`.
+6. Center-crop a rectangular detector image to a square and then apply
+   `pattern_binning` block averaging.
+
+Thus the default factors `0.02` and `0.183` scale with the original,
+unbinned detector width. For a 1024-pixel-wide pattern they give a Gaussian
+sigma of 20.48 pixels and an LMSD radius of 187 pixels (a 375-pixel window).
+For a 512-pixel-wide pattern they give 10.24 pixels and a radius of 93 pixels
+(a 187-pixel window).
+
+The parameters `unprocessed_background_sigma_pixels` and
+`unprocessed_background_downsample` are ignored in `static_lmsd` mode. They
+belong only to `divide_gaussian` and `subtract_gaussian`. In those modes,
+PyHREBSD first obtains the centered square pattern, samples every
+`unprocessed_background_downsample` pixel, applies a Gaussian whose sigma is
+`unprocessed_background_sigma_pixels` in original-pattern pixel units,
+interpolates the background to full size, performs division or subtraction,
+and finally applies `pattern_binning`.
+
+## ROI method
+
+The ROI path extracts multiple square regions, applies an optional cosine and
+radial-frequency window, and calculates translations by FFT
+cross-correlation. Peak position is refined with either independent 1-D
+parabolas or a coupled 2-D quadratic fit. This follows the local HR-EBSD
+approach of Wilkinson, Meaden, and Dingley
+[WMD2006](references.md#wmd2006).
+
+The default annular layout places one ROI at the center and the remainder on
+a circular ring. A regular square grid is also available. ROI size may be
+given in pixels or as a percentage of the square pattern side.
+
+With `roi_remapping=True`, a first pass estimates the finite lattice rotation.
+The scan pattern is projectively back-rotated and correlated again. The final
+deformation combines the finite first-pass rotation and the residual
+second-pass fit. The physical basis for this two-pass correction is the
+remapping method of Britton and Wilkinson [BW2012](references.md#bw2012).
+
+CPU mode uses NumPy FFTs. GPU mode uses CuPy for remapping, ROI FFTs,
+cross-correlations, and subpixel peak fitting. The small tensor solve remains
+on the CPU.
+
+## Homography method
+
+The homography path fits one eight-parameter projective transformation over a
+large central region. It uses high-pass preprocessing, zero-mean normalized
+intensities, and inverse-compositional Gauss-Newton iterations. The reference
+gradient and Jacobian are cached for the entire scan. The HR-EBSD formulation
+follows Ernould et al. [E2020](references.md#e2020),
+[E2022a](references.md#e2022a), and [E2022b](references.md#e2022b), and the
+underlying IC-GN algorithm follows Baker and Matthews
+[BM2004](references.md#bm2004).
+
+The initial warp includes the geometric change implied by the reference and
+target pattern centers. The optimizer stops at convergence or at
+`homography_max_iterations`. Output includes the 3x3 homography, ZNSSD
+residual, iteration count, and convergence flag.
+
+Homography cannot determine isotropic dilation from one projective image pair.
+PyHREBSD fixes the remaining scalar using the zero-normal-stress free-surface
+condition and the selected elastic constants. Hydrostatic strain is therefore
+partly constrained by this boundary condition rather than measured directly.
+
+CPU mode uses NumPy and SciPy. GPU mode keeps interpolation, residuals, the
+Jacobian, and parameter updates in CuPy float64. Final tensor conversion runs
+on the CPU.
+
+## Pattern binning
+
+`pattern_binning` performs block averaging before either analysis method and
+reduces the pattern dimensions by the same factor. Homography evaluates every
+pixel remaining inside its configured margin. Compare binned and unbinned
+results before selecting production settings.
+
+## Frames and tensor output
+
+The deformation solve first produces crystal-frame tensors. The output CSV
+also stores strain, stress, deviatoric strain, and rotation in the sample
+frame. Plotting utilities can apply an additional in-plane sample-axis basis
+rotation for comparison with external figures.
+
+Real-pattern strain and rotation are relative to the selected reference
+pattern. A strained or rotated reference shifts the zero of every map.
+
+## Calibration and validation
+
+Pattern-center calibration can estimate an effective beam-shift pixel size on
+a separate strain-free single-crystal scan. Use the same detector resolution,
+geometry, SEM conditions, and scan convention for calibration and analysis.
+
+For a new instrument or acquisition recipe:
+
+1. verify processed and raw pattern orientation;
+2. confirm the selected PC source and detector Euler convention;
+3. validate tensor signs and axes on a known deformation;
+4. compare CPU and GPU results on a small point set;
+5. compare binned and unbinned maps using common masks and color scales;
+6. keep every run's `run_settings.json` with its result CSV.
+
+## Scientific origins
+
+The ROI correlation and deformation path was developed using OpenXY routines
+as source references. The whole-pattern method follows published global-DIC
+and homography HR-EBSD methods. See `THIRD_PARTY_NOTICES.md` for software
+attribution and retained license terms. Full method-to-source mapping and
+bibliographic details are in [`references.md`](references.md).
+
+Reference keys in this page are defined in [`references.md`](references.md).

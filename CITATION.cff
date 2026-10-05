@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use PyHREBSD in published work, please cite this software and the scientific methods it implements."
+title: "PyHREBSD"
+type: software
+authors:
+  - family-names: "Cios"
+    given-names: "Grzegorz"
+    affiliation: "AGH University of Krakow"
+version: 0.1.0
+date-released: 2026-10-05
+license: LicenseRef-PyHREBSD-No-Resale-1.0
+repository-code: "https://github.com/CiosG/pyHREBSD"

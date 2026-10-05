@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+.tmp-*/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local caches and temporary files
+.cupy-cache/
+.mplconfig/
+.tmp*/
+*.log
+*.partial
+
+# EBSD inputs, simulation files, and generated results
+*.h5
+!pyhrebsd/materials.h5
+*.hdf5
+*.h5oina
+*.sdf5
+*.up1
+*.up2
+*.ang
+*.ctf
+*.cpr
+*.tif
+*.tiff
+results*/
+output*/
+beam_shift_calibration/
+
+# Generated analysis tables and figures
+scan_results.csv
+*_rois.csv
+*_rois_first_pass.csv
+run_settings.json
+*.npz

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyhrebsd"
+version = "0.1.0"
+description = "CPU/GPU ROI and homography analysis for high-resolution EBSD"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "Grzegorz Cios, AGH University of Krakow"}]
+keywords = ["EBSD", "HR-EBSD", "strain", "homography", "cross-correlation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "h5py>=3.8",
+  "matplotlib>=3.6",
+  "numpy>=1.23",
+  "Pillow>=9.5",
+  "scipy>=1.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/CiosG/pyHREBSD"
+Repository = "https://github.com/CiosG/pyHREBSD.git"
+Issues = "https://github.com/CiosG/pyHREBSD/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+pyhrebsd-shifts = "pyhrebsd.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["pyhrebsd*"]
+
+[tool.setuptools.package-data]
+pyhrebsd = ["materials.h5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
