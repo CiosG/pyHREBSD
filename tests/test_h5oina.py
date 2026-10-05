@@ -244,12 +244,13 @@ class H5OINATests(unittest.TestCase):
             report = run({"run_mode": "calibration",
                           "h5oina_file": str(path),
                           "output_dir": str(output),
-                          "reference_map_point": (0, 0),
-                          "roi_size_percent": 50.0,
-                          "calibration_line_extent_um": 9.0,
-                          "calibration_line_spacing": 1})
+                          "reference_map_point": (4, 0),
+                          "roi_size_percent": 50.0})
             self.assertAlmostEqual(report["effective_pixel_size_um_per_pixel"],
                                    4.0, delta=0.35)
+            self.assertEqual(report["line_fit"]["line_start"], [0, 0])
+            self.assertEqual(report["line_fit"]["line_end"], [9, 0])
+            self.assertEqual(report["line_fit"]["points_total"], 10)
             self.assertTrue((output / "beam_shift_calibration.json").is_file())
             self.assertTrue((output / "beam_shift_calibration.png").is_file())
 

@@ -92,9 +92,6 @@ CONFIG = {
     "unprocessed_lmsd_factor": 0.183,  # LMSD radius = int(width * factor)
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
 
-    # Optional calibration settings; used only for run_mode="calibration".
-    "calibration_line_extent_um": 100.0,
-    "calibration_line_spacing": 1,
 }
 # -------------------------------------------------------------------------------
 
@@ -121,9 +118,7 @@ def run_beam_shift_calibration(config):
         reference_index = reader.map_index(column, row)
         report = measure_effective_pixel_size(
             reader, reference_index,
-            roi_size_percent=config.get("roi_size_percent", 25.0),
-            spacing=config.get("calibration_line_spacing", 1),
-            extent_um=config.get("calibration_line_extent_um", 100.0))
+            roi_size_percent=config.get("roi_size_percent", 25.0))
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "beam_shift_calibration.json"
     json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

@@ -145,7 +145,14 @@ def _map_step_um(reader: H5OINAReader, axis: str) -> float:
 
 
 def _line_positions(anchor: int, cells: int, step_um: float,
-                    extent_um: float, spacing: int) -> list[int]:
+                    extent_um: float | None, spacing: int) -> list[int]:
+    if extent_um is None:
+        positions = list(range(0, cells, spacing))
+        if positions[-1] != cells - 1:
+            positions.append(cells - 1)
+        if len(positions) < 7:
+            raise ValueError("calibration line needs at least seven map points")
+        return positions
     direction = 1 if cells - 1 - anchor >= anchor else -1
     available = cells - 1 - anchor if direction == 1 else anchor
     span = min(available, int(extent_um / step_um))
@@ -162,17 +169,19 @@ def _line_positions(anchor: int, cells: int, step_um: float,
 def measure_effective_pixel_size(reader: H5OINAReader, reference_index: int,
                                  *, roi_size_percent: float = 25.0,
                                  spacing: int = 1,
-                                 extent_um: float = 100.0,
+                                 extent_um: float | None = None,
                                  pattern_center: tuple[float, float, float] | None = None) -> dict:
     """Measure effective pixel size along an X line on a strain-free scan.
 
     Returns a *positive* effective pixel size and the measured detector-X
     direction separately. Patterns must have the same pixel resolution and
     detector geometry as those to which the calibration will be applied.
+    By default every point in the reference pattern's map row is used.
     """
     if reader.x_cells is None or reader.y_cells is None:
         raise ValueError("beam-shift calibration needs a rectangular H5OINA scan")
-    if spacing < 1 or extent_um <= 0 or not 0 < roi_size_percent <= 50:
+    if (spacing < 1 or (extent_um is not None and extent_um <= 0)
+            or not 0 < roi_size_percent <= 50):
         raise ValueError("invalid beam-shift calibration sampling or ROI size")
     reference = reader.pattern(reference_index)
     size = reference.shape[0]
@@ -204,7 +213,8 @@ def measure_effective_pixel_size(reader: H5OINAReader, reference_index: int,
         "reference_map_point": [column0, row0],
         "reference_pattern_center": list(map(float, pc)),
         "roi_center_pixels": center[0].tolist(), "roi_size_pixels": roi_size,
-        "x_step_um": x_step, "line_extent_um": extent_um,
+        "x_step_um": x_step,
+        "line_extent_um": abs(columns[-1] - columns[0]) * x_step,
         "line_spacing_map_steps": spacing,
         "measured_x_shift_pixels_per_step": slope,
         "measured_x_shift_pixels_per_um": slope / x_step,
