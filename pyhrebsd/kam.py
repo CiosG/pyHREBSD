@@ -24,6 +24,8 @@ def hr_kam(rotation_vectors_mrad: np.ndarray, valid: np.ndarray,
     if vectors.ndim != 3 or vectors.shape[-1] != 3:
         raise ValueError("rotation_vectors_mrad must have shape (rows, columns, 3)")
     shape = vectors.shape[:2]
+    if 0 in shape:
+        raise ValueError("rotation_vectors_mrad must have non-zero rows and columns")
     if mask.shape != shape or grains.shape != shape:
         raise ValueError("valid and grain_ids must match the scan grid")
     if threshold_degrees is not None and not 0 < threshold_degrees <= 180:
@@ -32,6 +34,9 @@ def hr_kam(rotation_vectors_mrad: np.ndarray, valid: np.ndarray,
     height, width = shape
     flat_vectors = vectors.reshape(-1, 3)
     flat_valid = mask.ravel() & (grains.ravel() > 0) & np.all(np.isfinite(flat_vectors), axis=1)
+    if not np.any(flat_valid):
+        return (np.full(shape, np.nan, dtype=np.float64),
+                np.zeros(shape, dtype=np.int32))
     safe_vectors = np.where(flat_valid[:, None], flat_vectors, 0.0)
     rotations = Rotation.from_rotvec(safe_vectors / 1000.0)
     grid = np.arange(height * width).reshape(shape)
@@ -40,10 +45,16 @@ def hr_kam(rotation_vectors_mrad: np.ndarray, valid: np.ndarray,
     same_grain = grains.ravel()[a] == grains.ravel()[b]
     eligible = flat_valid[a] & flat_valid[b] & same_grain
     a, b = a[eligible], b[eligible]
+    if not len(a):
+        return (np.full(shape, np.nan, dtype=np.float64),
+                np.zeros(shape, dtype=np.int32))
     angles = (rotations[a].inv() * rotations[b]).magnitude() * (180.0 / np.pi)
     if threshold_degrees is not None:
         keep = angles <= threshold_degrees
         a, b, angles = a[keep], b[keep], angles[keep]
+    if not len(a):
+        return (np.full(shape, np.nan, dtype=np.float64),
+                np.zeros(shape, dtype=np.int32))
     sums = np.zeros(height * width, dtype=np.float64)
     counts = np.zeros(height * width, dtype=np.int32)
     np.add.at(sums, a, angles)

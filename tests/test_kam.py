@@ -28,6 +28,18 @@ class HRKAMTests(unittest.TestCase):
         self.assertTrue(np.isnan(kam).all())
         np.testing.assert_array_equal(counts, 0)
 
+    def test_empty_valid_mask_and_threshold_are_safe(self):
+        vectors = np.zeros((1, 2, 3))
+        grains = np.ones((1, 2), int)
+        kam, counts = hr_kam(vectors, np.zeros((1, 2), bool), grains, None)
+        self.assertTrue(np.isnan(kam).all())
+        np.testing.assert_array_equal(counts, 0)
+
+        vectors[0, 1, 2] = np.deg2rad(20) * 1000
+        kam, counts = hr_kam(vectors, np.ones((1, 2), bool), grains, 5)
+        self.assertTrue(np.isnan(kam).all())
+        np.testing.assert_array_equal(counts, 0)
+
     def test_composes_noncommuting_rotations_not_vector_distance(self):
         vectors = np.zeros((1, 2, 3))
         vectors[0, 0, 0] = np.pi * 500

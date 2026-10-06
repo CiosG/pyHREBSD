@@ -12,6 +12,7 @@ from pyhrebsd.analysis import Material, analyze_pair, prepare_analysis
 from pyhrebsd.bcf import BCFReader, correct_pattern_dynamic_lmsd
 from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
+from pyhrebsd.tfs import TFSReader
 from pyhrebsd.homography import analyze_homography, prepare_homography
 from pyhrebsd.io import read_pattern
 from pyhrebsd.pc_calibration import (fit_pc_plane, measure_effective_pixel_size,
@@ -26,7 +27,7 @@ from pyhrebsd.rotations import sample_rotation_vector_mrad
 CONFIG = {
     # Required: select the run and its input/output.
     "run_mode": "analysis",  # "analysis" or "calibration" on a separate strain-free single-crystal scan
-    "input_file": "scan.h5oina",  # .h5oina or Bruker .bcf; relative or absolute
+    "input_file": "scan.h5oina",  # .tfs.hdf5, .h5oina, or Bruker .bcf; relative or absolute
     "output_dir": "results_roi_cpu",  # must be new; existing results are not overwritten
 
     # Required for run_mode="analysis".
@@ -117,7 +118,7 @@ def _path(value):
 def _input_path(config):
     value = config.get("input_file", config.get("h5oina_file"))
     if value is None:
-        raise ValueError("set input_file to a .h5oina or .bcf dataset")
+        raise ValueError("set input_file to a .tfs.hdf5, .h5oina, or .bcf dataset")
     return _path(value)
 
 
@@ -141,10 +142,12 @@ def _open_reader(path, config):
                 "dynamic_lmsd_clip_percentile",
                 config.get("bcf_lmsd_clip_percentile", 0.75)),
         )
+    if path.name.lower().endswith(".tfs.hdf5"):
+        return TFSReader(path, pattern_type, pc_source=config.get("h5_pc_source", "ebsd"))
     if path.suffix.lower() in (".h5oina", ".h5", ".hdf5"):
         return H5OINAReader(path, config.get("h5_scan_group"), pattern_type,
                             pc_source=config.get("h5_pc_source", "ebsd"))
-    raise ValueError("input_file must have a .h5oina, .h5, .hdf5, or .bcf extension")
+    raise ValueError("input_file must have a .h5oina, .h5, .hdf5, .tfs.hdf5, or .bcf extension")
 
 
 def _reference_index(reader, config):

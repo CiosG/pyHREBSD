@@ -1,7 +1,7 @@
 # PyHREBSD
 
 PyHREBSD is a Python research implementation of high-resolution electron
-backscatter diffraction analysis. It reads Oxford Instruments `.h5oina` and
+backscatter diffraction analysis. It reads Thermo Fisher `.tfs.hdf5`, Oxford Instruments `.h5oina`, and
 Bruker ESPRIT `.bcf` files directly and provides two complementary registration methods:
 
 - multi-ROI FFT cross-correlation with optional two-pass remapping;
@@ -58,7 +58,7 @@ driver and CUDA runtime. CPU mode never imports CuPy.
 
 1. Open `run_pyhrebsd.py` and edit the required settings at the top of its
    `CONFIG` block.
-2. Set `input_file` to a `.h5oina` or `.bcf` file, then set a new `output_dir`,
+2. Set `input_file` to a `.tfs.hdf5`, `.h5oina`, or `.bcf` file, then set a new `output_dir`,
    `analysis_method`, `pattern_type`, `pc_mode`, `material_name`,
    `reference_map_point`, and `pattern_binning`.
 3. Leave geometry overrides as `None` to read sample tilt, reference
@@ -80,6 +80,9 @@ execution. It analyzes the complete map, including the reference point.
 Elastic constants, their verification status, and literature references are
 stored in `pyhrebsd/materials.h5`; see
 [the material database notes](docs/materials.md).
+
+For TFS input, `pattern_type="processed"` is selected automatically; TFS exports
+contain processed patterns, map PC values, Euler angles, phases, and sample geometry.
 
 For `pattern_type="unprocessed"`, the default `static_lmsd` correction uses
 the H5OINA static background when available. If that dataset is absent, the
