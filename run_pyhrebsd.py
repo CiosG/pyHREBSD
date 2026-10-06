@@ -15,6 +15,7 @@ from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.homography import analyze_homography, prepare_homography
 from pyhrebsd.io import read_pattern
 from pyhrebsd.pc_calibration import (fit_pc_plane, measure_effective_pixel_size,
+                                   measure_effective_pixel_size_homography,
                                    pc_plane_from_effective_pixel_size)
 from pyhrebsd.preprocess import (correct_pattern_background,
                                correct_pattern_static_lmsd)
@@ -32,10 +33,15 @@ CONFIG = {
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
     "pattern_type": "processed",  # H5: stored 8-bit; BCF: dynamic-LMSD 8-bit in memory
     "h5_pc_source": "ebsd",  # H5 only: "ebsd" or "data_processing"; BCF uses acquisition PC
-    "pc_mode": "h5",  # direct per-point PC; "affine" fits a plane to the selected H5 PC
+    "pc_mode": "h5",  # "h5", fitted "affine", or calibrated "beam_shift_eps"
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
+
+    # Calibration settings; used only for run_mode="calibration".
+    "calibration_method": "roi",  # "roi" or whole-pattern "homography"
+    "calibration_line_extent_um": None,  # None uses the complete reference row
+    "calibration_line_spacing": 1,
 
     # Optional dataset, material, and PC overrides.
     "material_database": "pyhrebsd/materials.h5",
@@ -172,9 +178,24 @@ def run_beam_shift_calibration(config):
     with _open_reader(path, config) as reader:
         reference_index = _reference_index(reader, config)
         column, row = reference_index % reader.x_cells, reference_index // reader.x_cells
-        report = measure_effective_pixel_size(
-            reader, reference_index,
-            roi_size_percent=config.get("roi_size_percent", 25.0))
+        method = config.get("calibration_method", "roi")
+        common = {
+            "spacing": int(config.get("calibration_line_spacing", 1)),
+            "extent_um": config.get("calibration_line_extent_um"),
+        }
+        if method == "roi":
+            report = measure_effective_pixel_size(
+                reader, reference_index,
+                roi_size_percent=config.get("roi_size_percent", 25.0), **common)
+        elif method == "homography":
+            report = measure_effective_pixel_size_homography(
+                reader, reference_index,
+                margin_fraction=config.get("homography_margin_fraction", 0.08),
+                max_iterations=config.get("homography_max_iterations", 250),
+                device=config.get("homography_device", "cpu"),
+                gpu_device_id=config.get("homography_gpu_device_id", 0), **common)
+        else:
+            raise ValueError("calibration_method must be 'roi' or 'homography'")
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "beam_shift_calibration.json"
     json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

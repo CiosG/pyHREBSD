@@ -189,12 +189,14 @@ def measure_effective_pixel_size(reader, reference_index: int,
     roi_size = max(32, int(round(size * roi_size_percent / 100)))
     if roi_size > size // 2:
         raise ValueError("calibration pattern is too small for the selected ROI")
-    pc = pattern_center if pattern_center is not None else reader.pattern_center(reference_index)
+    pc = (pattern_center if pattern_center is not None else
+          reader.pattern_center(reference_index))
     if pc is None or len(pc) != 3 or not np.all(np.isfinite(pc)):
         raise ValueError("calibration needs a valid reference PC or pattern_center")
     center = np.array([[pc[0] * size - 1, (1 - pc[1]) * size - 1]])
     x_step = _map_step_um(reader, "X")
-    column0, row0 = reference_index % reader.x_cells, reference_index // reader.x_cells
+    column0 = reference_index % reader.x_cells
+    row0 = reference_index // reader.x_cells
     columns = _line_positions(column0, reader.x_cells, x_step, extent_um, spacing)
     points = [(column, row0) for column in columns]
     fit, _ = _fit_shift_line(reference, reader, reference_index,
@@ -224,6 +226,120 @@ def measure_effective_pixel_size(reader, reference_index: int,
         "x_fit_intercept_pixels": fit["intercept_pixels"][0],
         "x_fit_rms_all_pixels": fit["rms_residual_all_pixels"][0],
         "x_fit_max_all_pixels": fit["max_residual_all_pixels"][0],
+        "line_fit": fit,
+    }
+
+
+def measure_effective_pixel_size_homography(
+    reader, reference_index: int, *, spacing: int = 1,
+    extent_um: float | None = None,
+    pattern_center: tuple[float, float, float] | None = None,
+    margin_fraction: float = 0.08, max_iterations: int = 250,
+    tolerance: float = 1e-5, device: str = "cpu", gpu_device_id: int = 0,
+) -> dict:
+    """Measure beam-shift EPS from a whole-pattern projective registration.
+
+    Each target pattern is registered to the reference with the same global
+    homography used by the analysis path. The fitted warp is evaluated at the
+    reference pattern centre and regressed against scan-X displacement.
+    """
+    from .homography import (_warp_points, prepare_homography,
+                             register_homography)
+
+    if reader.x_cells is None or reader.y_cells is None:
+        raise ValueError("beam-shift calibration needs a rectangular H5OINA scan")
+    if spacing < 1 or (extent_um is not None and extent_um <= 0):
+        raise ValueError("invalid beam-shift calibration sampling")
+    reference = reader.pattern(reference_index)
+    size = reference.shape[0]
+    if reference.ndim != 2 or reference.shape[1] != size:
+        raise ValueError("beam-shift calibration needs square patterns")
+    pc = (pattern_center if pattern_center is not None else
+          reader.pattern_center(reference_index))
+    if pc is None or len(pc) != 3 or not np.all(np.isfinite(pc)):
+        raise ValueError("calibration needs a valid reference PC or pattern_center")
+    pc_pixel = np.array(
+        [[pc[0] * size - 1, (1 - pc[1]) * size - 1]], dtype=float)
+    x_step = _map_step_um(reader, "X")
+    column0 = reference_index % reader.x_cells
+    row0 = reference_index // reader.x_cells
+    columns = _line_positions(column0, reader.x_cells, x_step, extent_um, spacing)
+    coordinates = np.asarray(columns, dtype=float) - column0
+    plan = prepare_homography(
+        reference, margin_fraction=margin_fraction, device=device,
+        gpu_device_id=gpu_device_id)
+    shifts, znssd, iterations, converged = [], [], [], []
+    for column in columns:
+        target = reader.pattern(reader.map_index(column, row0))
+        h, rms, count, good = register_homography(
+            plan, target, max_iterations=max_iterations, tolerance=tolerance)
+        shifts.append((_warp_points(h, pc_pixel)[0] - pc_pixel[0]).tolist())
+        znssd.append(float(rms))
+        iterations.append(int(count))
+        converged.append(bool(good))
+    shifts = np.asarray(shifts, dtype=float)
+    design = np.column_stack((np.ones(len(columns)), coordinates))
+    valid = np.asarray(converged, dtype=bool) & np.all(np.isfinite(shifts), axis=1)
+    if valid.sum() < 7:
+        raise ValueError("homography calibration needs at least seven converged points")
+    for _ in range(5):
+        coefficients = np.linalg.lstsq(design[valid], shifts[valid], rcond=None)[0]
+        residual_norm = np.linalg.norm(shifts - design @ coefficients, axis=1)
+        median = np.median(residual_norm[valid])
+        mad = np.median(np.abs(residual_norm[valid] - median))
+        next_valid = (np.asarray(converged, dtype=bool) &
+                      (residual_norm <= median + max(4 * 1.4826 * mad, 0.05)))
+        if next_valid.sum() < 7 or np.array_equal(next_valid, valid):
+            break
+        valid = next_valid
+    coefficients = np.linalg.lstsq(design[valid], shifts[valid], rcond=None)[0]
+    residual = shifts[valid] - design[valid] @ coefficients
+    all_residual = shifts - design @ coefficients
+    slope = float(coefficients[1, 0])
+    if not np.isfinite(slope) or abs(slope) < 1e-8:
+        raise ValueError("calibration did not measure a nonzero X shift slope")
+    fit = {
+        "slope_pixels_per_map_step": coefficients[1].tolist(),
+        "intercept_pixels": coefficients[0].tolist(),
+        "rms_residual_pixels": np.sqrt(np.mean(residual ** 2, axis=0)).tolist(),
+        "max_residual_pixels": np.max(np.abs(residual), axis=0).tolist(),
+        "rms_residual_all_pixels": np.sqrt(np.mean(all_residual ** 2, axis=0)).tolist(),
+        "max_residual_all_pixels": np.max(np.abs(all_residual), axis=0).tolist(),
+        "coordinates_map_steps": coordinates.tolist(),
+        "measured_shifts_pixels": shifts.tolist(),
+        "inlier_mask": valid.tolist(),
+        "points_used": int(valid.sum()), "points_total": len(columns),
+        "line_start": [int(columns[0]), row0],
+        "line_end": [int(columns[-1]), row0],
+    }
+    y_shift_max_abs = float(np.max(np.abs(shifts[:, 1] - shifts[0, 1])))
+    return {
+        "method": "beam_shift_x_line_homography_effective_pixel_size",
+        "input_file": str(reader.path), "scan_group": reader.scan_group,
+        "pattern_type": reader.pattern_type,
+        "pattern_width_pixels": size,
+        "reference_map_point": [column0, row0],
+        "reference_pattern_center": list(map(float, pc)),
+        "evaluation_point_pixels": pc_pixel[0].tolist(),
+        "x_step_um": x_step,
+        "line_extent_um": abs(columns[-1] - columns[0]) * x_step,
+        "line_spacing_map_steps": spacing,
+        "measured_x_shift_pixels_per_step": slope,
+        "measured_x_shift_pixels_per_um": slope / x_step,
+        "effective_pixel_size_um_per_pixel": abs(x_step / slope),
+        "detector_x_shift_sign": 1 if slope > 0 else -1,
+        "max_abs_y_shift_pixels": y_shift_max_abs,
+        "y_alignment_within_1_pixel": y_shift_max_abs <= 1.0,
+        "x_fit_intercept_pixels": float(coefficients[0, 0]),
+        "x_fit_rms_all_pixels": float(fit["rms_residual_all_pixels"][0]),
+        "x_fit_max_all_pixels": float(fit["max_residual_all_pixels"][0]),
+        "homography_margin_fraction": float(margin_fraction),
+        "homography_max_iterations": int(max_iterations),
+        "homography_tolerance": float(tolerance),
+        "homography_device": device,
+        "homography_converged": converged,
+        "homography_iterations": iterations,
+        "homography_znssd_rms": znssd,
         "line_fit": fit,
     }
 

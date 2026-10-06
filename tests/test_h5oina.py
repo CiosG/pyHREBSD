@@ -11,6 +11,7 @@ from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.geometry import euler_to_matrix, phosphor_to_sample_from_oxford
 from pyhrebsd.pc_calibration import (fit_beam_shift_pc_plane, fit_pc_plane,
                                    measure_effective_pixel_size,
+                                   measure_effective_pixel_size_homography,
                                    pc_plane_from_effective_pixel_size)
 from run_pyhrebsd import run
 
@@ -281,6 +282,14 @@ class H5OINATests(unittest.TestCase):
                                            -0.25, atol=0.025)
                 np.testing.assert_allclose(external.coefficients[1, 2], 0.0,
                                            atol=1e-12)
+                homography_calibration = measure_effective_pixel_size_homography(
+                    reader, 0, spacing=1, extent_um=9, max_iterations=80)
+                self.assertAlmostEqual(
+                    homography_calibration["effective_pixel_size_um_per_pixel"],
+                    4.0, delta=0.35)
+                self.assertEqual(homography_calibration["detector_x_shift_sign"], -1)
+                self.assertEqual(homography_calibration["method"],
+                                 "beam_shift_x_line_homography_effective_pixel_size")
             output = Path(directory) / "calibration_output"
             report = run({"run_mode": "calibration",
                           "h5oina_file": str(path),
@@ -294,6 +303,20 @@ class H5OINATests(unittest.TestCase):
             self.assertEqual(report["line_fit"]["points_total"], 10)
             self.assertTrue((output / "beam_shift_calibration.json").is_file())
             self.assertTrue((output / "beam_shift_calibration.png").is_file())
+            homography_output = Path(directory) / "homography_calibration_output"
+            homography_report = run({
+                "run_mode": "calibration",
+                "h5oina_file": str(path),
+                "output_dir": str(homography_output),
+                "reference_map_point": (0, 0),
+                "calibration_method": "homography",
+                "homography_max_iterations": 80,
+            })
+            self.assertAlmostEqual(
+                homography_report["effective_pixel_size_um_per_pixel"],
+                4.0, delta=0.35)
+            self.assertTrue(
+                (homography_output / "beam_shift_calibration.json").is_file())
 
     def test_oxford_geometry_angles_are_read_in_degrees(self):
         with tempfile.TemporaryDirectory() as directory:

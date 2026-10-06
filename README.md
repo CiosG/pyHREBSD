@@ -97,12 +97,20 @@ Set the common H5 settings once and change:
 "input_file": r"path\to\calibration.h5oina",
 "output_dir": "beam_shift_calibration",
 "reference_map_point": (0, 0),
+"calibration_method": "roi",  # or "homography"
 ```
 
 Calibration correlates every point in the complete map row containing the
 reference point. With `reference_map_point=(0, 0)` this is the entire first
 row. The row must contain at least seven points. The output JSON reports
 `effective_pixel_size_um_per_pixel` and `detector_x_shift_sign`.
+
+The `roi` method measures the displacement of a PC-centred subset. The
+`homography` method registers the whole pattern and evaluates the fitted
+projective warp at the PC. It uses `homography_device`,
+`homography_gpu_device_id`, `homography_margin_fraction`, and
+`homography_max_iterations`. Optional `calibration_line_extent_um` and
+`calibration_line_spacing` restrict or subsample the selected row.
 
 For the subsequent analysis, select its H5OINA file and set:
 
