@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .h5oina import H5OINAReader
 from .correlation import measure_pattern_shifts
 
 
@@ -20,7 +19,7 @@ class PCPlane:
     max_residual_pixels: tuple[float, float, float]
     pattern_width: int
     source_path: str
-    method: str = "affine_plane_from_h5oina_pattern_centers"
+    method: str = "affine_plane_from_dataset_pattern_centers"
     diagnostics: dict = field(default_factory=dict)
 
     def at(self, index: int, columns: int) -> tuple[float, float, float]:
@@ -45,7 +44,7 @@ class PCPlane:
             "rms_residual_pixels": dict(zip(("x", "y", "z"), self.rms_residual_pixels)),
             "max_residual_pixels": dict(zip(("x", "y", "z"), self.max_residual_pixels)),
             "residual_definition": (
-                "difference from H5 affine PC plane over the map"
+                "difference from the dataset affine PC plane over the map"
                 if self.method == "external_effective_pixel_size_beam_shift" else
                 "measured centre-ROI X shift fit and H5 Y/Z plane fit"
                 if self.method == "center_roi_beam_shift_calibration" else
@@ -56,7 +55,7 @@ class PCPlane:
         }
 
 
-def fit_pc_plane(reader: H5OINAReader) -> PCPlane | None:
+def fit_pc_plane(reader) -> PCPlane | None:
     """Robustly smooth the stored per-point PC over a regular map.
 
     The fit estimates scan-position drift; it cannot establish absolute PC
@@ -135,9 +134,9 @@ def _fit_shift_line(reference, pattern_reader, reference_index, points,
             "line_start": list(points[0]), "line_end": list(points[-1])}, residual
 
 
-def _map_step_um(reader: H5OINAReader, axis: str) -> float:
+def _map_step_um(reader, axis: str) -> float:
     if reader._header is None or f"{axis} Step" not in reader._header:
-        raise ValueError(f"beam-shift calibration needs {axis} Step in H5OINA")
+        raise ValueError(f"beam-shift calibration needs dataset {axis} Step metadata")
     values = np.asarray(reader._header[f"{axis} Step"][()], dtype=float).reshape(-1)
     if len(values) != 1 or not np.isfinite(values[0]) or values[0] <= 0:
         raise ValueError(f"beam-shift calibration needs a positive {axis} Step")
@@ -166,7 +165,7 @@ def _line_positions(anchor: int, cells: int, step_um: float,
     return positions
 
 
-def measure_effective_pixel_size(reader: H5OINAReader, reference_index: int,
+def measure_effective_pixel_size(reader, reference_index: int,
                                  *, roi_size_percent: float = 25.0,
                                  spacing: int = 1,
                                  extent_um: float | None = None,
@@ -207,7 +206,7 @@ def measure_effective_pixel_size(reader: H5OINAReader, reference_index: int,
     y_shift_max_abs = float(np.max(np.abs(y_shifts - y_shifts[0])))
     return {
         "method": "beam_shift_x_line_effective_pixel_size",
-        "h5oina_file": str(reader.path), "scan_group": reader.scan_group,
+        "input_file": str(reader.path), "scan_group": reader.scan_group,
         "pattern_type": reader.pattern_type,
         "pattern_width_pixels": size,
         "reference_map_point": [column0, row0],
@@ -229,7 +228,7 @@ def measure_effective_pixel_size(reader: H5OINAReader, reference_index: int,
     }
 
 
-def pc_plane_from_effective_pixel_size(reader: H5OINAReader,
+def pc_plane_from_effective_pixel_size(reader,
                                        reference_index: int,
                                        effective_pixel_size_um: float,
                                        detector_x_shift_sign: int | str = "auto") -> PCPlane:
@@ -243,7 +242,7 @@ def pc_plane_from_effective_pixel_size(reader: H5OINAReader,
         raise ValueError("effective_pixel_size_um must be positive")
     baseline = fit_pc_plane(reader)
     if baseline is None:
-        raise ValueError("external beam-shift EPS requires an H5OINA reference PC")
+        raise ValueError("external beam-shift EPS requires a dataset reference PC")
     if detector_x_shift_sign == "auto":
         h5_slope = float(baseline.coefficients[0, 1])
         if abs(h5_slope) < 1e-12:
@@ -293,7 +292,7 @@ def pc_plane_from_effective_pixel_size(reader: H5OINAReader,
                    "external_effective_pixel_size_beam_shift", diagnostics)
 
 
-def fit_beam_shift_pc_plane(reader: H5OINAReader, pattern_reader: H5OINAReader,
+def fit_beam_shift_pc_plane(reader, pattern_reader,
                             reference_index: int, *, roi_size: int = 256,
                             spacing: int = 8, extent_um: float = 100.0) -> PCPlane:
     """Calibrate scan-induced PC translation from two strain-free lines.

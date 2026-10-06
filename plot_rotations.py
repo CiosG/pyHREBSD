@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 
-from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.frame_views import in_plane_rotation, rotate_vector_maps
 from pyhrebsd.rotations import sample_rotation_vector_mrad
 from run_pyhrebsd import CONFIG
@@ -36,7 +35,9 @@ def extract_rotations(csv_path: Path, h5_path: Path, output_dir: Path,
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_output = output_dir / "sample_rotations.csv"
     display_rotation = in_plane_rotation(sample_axis_rotation_degrees)
-    with H5OINAReader(h5_path, scan_group=scan_group) as reader:
+    from run_pyhrebsd import _open_reader
+    reader_config = {"h5_scan_group": scan_group, "pattern_type": "unprocessed"}
+    with _open_reader(h5_path, reader_config) as reader:
         g = reader.orientation(reference_index)
         with csv_output.open("w", newline="", encoding="utf-8") as stream:
             writer = csv.writer(stream)
@@ -117,16 +118,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv_path", nargs="?", type=Path,
                         default=Path("results_roi256/scan_results.csv"))
-    parser.add_argument("--h5oina-file", type=Path, default=Path(CONFIG["h5oina_file"]))
+    parser.add_argument("--input-file", "--h5oina-file", dest="input_file", type=Path,
+                        default=Path(CONFIG.get("input_file", CONFIG.get("h5oina_file"))))
     parser.add_argument("--output-dir", type=Path, default=Path("results_roi256"))
-    parser.add_argument("--scan-group", default=CONFIG["h5_scan_group"])
+    parser.add_argument("--scan-group", default=CONFIG.get("h5_scan_group"))
     parser.add_argument("--color-percentile", type=float, default=99.5,
                         help="shared signed limit from the widest rotation map; 100 uses full range")
     parser.add_argument("--sample-axis-rotation-degrees", type=float, default=0.0,
                         help="rotate displayed sample-frame rotation components about axis 3")
     args = parser.parse_args()
     maps, rms, csv_output = extract_rotations(
-        args.csv_path, args.h5oina_file, args.output_dir, args.scan_group,
+        args.csv_path, args.input_file, args.output_dir, args.scan_group,
         args.sample_axis_rotation_degrees)
     print(csv_output)
     with args.csv_path.open(newline="", encoding="utf-8") as stream:

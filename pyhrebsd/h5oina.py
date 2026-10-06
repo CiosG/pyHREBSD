@@ -103,6 +103,15 @@ class H5OINAReader:
         if index < 0 or index >= self.count:
             raise IndexError(f"pattern index {index} outside 0..{self.count - 1}")
 
+    def available_indices(self) -> np.ndarray:
+        """Return all pattern indices; H5OINA pattern stacks are dense."""
+        return np.arange(self.count, dtype=np.int64)
+
+    def has_pattern(self, index: int) -> bool:
+        """Return whether the dense H5OINA stack contains this index."""
+        return (not isinstance(index, (bool, np.bool_)) and
+                isinstance(index, (int, np.integer)) and 0 <= index < self.count)
+
     def pattern(self, index: int) -> np.ndarray:
         """Return a centered square crop of one pattern as float64."""
         image = self.uncropped_pattern(index)

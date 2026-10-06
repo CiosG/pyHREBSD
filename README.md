@@ -1,8 +1,8 @@
 # PyHREBSD
 
 PyHREBSD is a Python research implementation of high-resolution electron
-backscatter diffraction analysis. It reads Oxford Instruments `.h5oina`
-files directly and provides two complementary registration methods:
+backscatter diffraction analysis. It reads Oxford Instruments `.h5oina` and
+Bruker ESPRIT `.bcf` files directly and provides two complementary registration methods:
 
 - multi-ROI FFT cross-correlation with optional two-pass remapping;
 - whole-pattern inverse-compositional homography fitting.
@@ -17,6 +17,8 @@ correlation, raw-pattern preprocessing, and homography fitting.
 ## Features
 
 - processed 8-bit and unprocessed 16-bit H5OINA pattern stacks;
+- direct, lazy access to raw 8-/16-bit BCF patterns, indexing results,
+  acquisition geometry, and reconstructed per-point pattern centres;
 - direct per-point PC from `EBSD/Data` or `Data Processing/Data`;
 - full Oxford detector geometry from the three detector Euler angles;
 - optional pattern binning and raw-pattern background correction;
@@ -56,11 +58,11 @@ driver and CUDA runtime. CPU mode never imports CuPy.
 
 1. Open `run_pyhrebsd.py` and edit the required settings at the top of its
    `CONFIG` block.
-2. Set `h5oina_file`, a new `output_dir`, `analysis_method`,
-   `h5_pattern_type`, `h5_pc_source`, `pc_mode`, `material_name`,
+2. Set `input_file` to a `.h5oina` or `.bcf` file, then set a new `output_dir`,
+   `analysis_method`, `pattern_type`, `pc_mode`, `material_name`,
    `reference_map_point`, and `pattern_binning`.
 3. Leave geometry overrides as `None` to read sample tilt, reference
-   orientation, and detector orientation from H5OINA. The default
+   orientation, and detector orientation from the dataset. The default
    `detector_geometry="full"` uses all three detector Euler angles.
 4. Select `"cpu"` or `"gpu"` separately for the chosen registration method.
    CPU analysis defaults to the number of logical processors minus one;
@@ -73,7 +75,7 @@ python run_pyhrebsd.py
 ```
 
 The default configuration expects `scan.h5oina`, uses processed patterns,
-direct H5 PC values, the bundled HDF5 silicon constants, ROI analysis, and CPU
+the dataset PC values, the bundled HDF5 silicon constants, ROI analysis, and CPU
 execution. It analyzes the complete map, including the reference point.
 Elastic constants, their verification status, and literature references are
 stored in `pyhrebsd/materials.h5`; see
@@ -87,7 +89,7 @@ Set the common H5 settings once and change:
 
 ```python
 "run_mode": "calibration",
-"h5oina_file": r"path\to\calibration.h5oina",
+"input_file": r"path\to\calibration.h5oina",
 "output_dir": "beam_shift_calibration",
 "reference_map_point": (0, 0),
 ```
@@ -108,6 +110,25 @@ For the subsequent analysis, select its H5OINA file and set:
 
 The external effective pixel size replaces the scan-X PC drift. The absolute
 PC and the remaining PC gradients still come from the selected H5 source.
+
+## Bruker BCF input
+
+Set `input_file` to the `.bcf` file. With `pattern_type="processed"`, PyHREBSD
+reads each raw pattern lazily and applies dynamic-background LMSD correction in
+memory; no intermediate H5OINA file is written. Select CPU or CUDA for this
+step with `bcf_preprocess_device`. With `pattern_type="unprocessed"`, the raw
+8- or 16-bit pattern is passed to the general raw-pattern correction settings;
+select `divide_gaussian`, `subtract_gaussian`, or `none`, because BCF normally
+does not contain the static-background image required by `static_lmsd`.
+
+BCF pattern centres are reconstructed for every map point from the stored PC,
+working distance, phosphor size, scan calibration, detector tilt, specimen
+tilt, and scan rotation. `h5_pc_source` is ignored for BCF. Missing map slots
+are skipped automatically rather than replaced with zero-valued patterns.
+Set `reference_map_point=None` to use the first stored pattern, which is useful
+when a sparse BCF acquisition starts away from map coordinate `(0, 0)`.
+The reader is implemented directly in PyHREBSD and does not require a format
+converter or Bruker software library.
 
 For a direct two-image ROI shift measurement:
 

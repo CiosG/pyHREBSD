@@ -27,10 +27,40 @@ When no explicit overrides are supplied, sample tilt and the full Oxford
 detector orientation are read from the H5OINA header. Euler orientations use
 the Bunge convention implemented in `pyhrebsd.geometry`.
 
+## Bruker BCF input
+
+`BCFReader` performs read-only random access to the AidAim SFS container and
+Bruker EBSD virtual files. It reads `FrameDescription` as the map-to-frame
+index and uses its 64-bit virtual offsets to fetch individual records from
+`FrameData`; the complete pattern stack is never loaded into memory. Both
+8-bit and 16-bit pattern records are supported. Missing-frame markers remain
+missing analysis points.
+
+The reader converts Bruker's active Euler triplets to the passive Bunge
+orientation used by the analysis. It reconstructs the affine per-point PC
+from the calibration PC, working distance, phosphor size, SEM scan step,
+camera and specimen tilts, and scan rotation. Detector geometry is exposed in
+the same frame expected by the ROI and homography solvers.
+
+For BCF, `pattern_type="processed"` means that dynamic-background LMSD is
+computed in memory for each raw pattern. The default parameters are scaled by
+the original detector width: Gaussian sigma `0.047 * width`, LMSD radius
+`0.0375 * width`, truncated edge neighborhoods, and symmetric 0.75-percent
+clipping to `uint8`. Cached edge-weight arrays avoid recomputing normalization
+filters for every pattern. `bcf_preprocess_device` selects the NumPy/SciPy or
+CuPy/CUDA implementation. CPU and GPU paths implement the same operations.
+
+`pattern_type="unprocessed"` returns the original unsigned intensity values.
+BCF does not normally contain a separate static-background image, so
+`static_lmsd` is invalid for this path; select `divide_gaussian`,
+`subtract_gaussian`, or `none` if raw BCF patterns are analyzed directly.
+The BCF reader is implemented directly in PyHREBSD and does not require an
+intermediate conversion or Bruker software library.
+
 ### Unprocessed-pattern background correction
 
 Background correction is applied only when
-`h5_pattern_type="unprocessed"`. Processed patterns bypass this entire stage.
+`pattern_type="unprocessed"`. Processed patterns bypass this entire stage.
 The selected `unprocessed_background_mode` has the following behavior:
 
 - `static_lmsd` uses the static detector background embedded at

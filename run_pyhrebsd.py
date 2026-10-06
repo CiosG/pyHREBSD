@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from pyhrebsd.analysis import Material, analyze_pair, prepare_analysis
+from pyhrebsd.bcf import BCFReader
 from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.homography import analyze_homography, prepare_homography
@@ -24,19 +25,19 @@ from pyhrebsd.rotations import sample_rotation_vector_mrad
 CONFIG = {
     # Required: select the run and its input/output.
     "run_mode": "analysis",  # "analysis" or "calibration" on a separate strain-free single-crystal scan
-    "h5oina_file": "scan.h5oina",  # relative to this file, or an absolute path
+    "input_file": "scan.h5oina",  # .h5oina or Bruker .bcf; relative or absolute
     "output_dir": "results_roi_cpu",  # must be new; existing results are not overwritten
 
     # Required for run_mode="analysis".
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
-    "h5_pattern_type": "processed",  # 8-bit patterns; "unprocessed" selects raw 16-bit patterns
-    "h5_pc_source": "ebsd",  # "ebsd" = EBSD/Data; "data_processing" = Data Processing/Data
+    "pattern_type": "processed",  # H5: stored 8-bit; BCF: dynamic-LMSD 8-bit in memory
+    "h5_pc_source": "ebsd",  # H5 only: "ebsd" or "data_processing"; BCF uses acquisition PC
     "pc_mode": "h5",  # direct per-point PC; "affine" fits a plane to the selected H5 PC
     "material_name": "silicon",  # database key or the full material name
-    "reference_map_point": (0, 0),  # zero-based (column, row)
+    "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
 
-    # Optional H5, material, and PC overrides.
+    # Optional dataset, material, and PC overrides.
     "material_database": "pyhrebsd/materials.h5",
     "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width
     "beam_shift_effective_pixel_size_um": None,  # required only for pc_mode="beam_shift_eps"
@@ -78,7 +79,7 @@ CONFIG = {
     "grain_min_size": 5,
     "grain_symmetry": "cubic",  # use "none" only if crystal symmetry is unknown
 
-    # Optional raw-pattern correction; used only for h5_pattern_type="unprocessed".
+    # Optional H5 raw-pattern correction; used only for pattern_type="unprocessed".
     # "static_lmsd" divides every full detector pattern by the single image at
     # /<scan>/EBSD/Header/Unprocessed Static Background, removes a Gaussian
     # background, applies local mean/std normalization, and then crops/bins.
@@ -92,6 +93,13 @@ CONFIG = {
     "unprocessed_lmsd_factor": 0.183,  # LMSD radius = int(width * factor)
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
 
+    # Optional BCF dynamic-LMSD correction used for pattern_type="processed".
+    "bcf_preprocess_device": "cpu",
+    "bcf_lmsd_sigma_factor": 0.047,  # Gaussian sigma / detector width
+    "bcf_lmsd_radius_factor": 0.0375,  # LMSD radius / detector width
+    "bcf_lmsd_edge_mode": "truncate",
+    "bcf_lmsd_clip_percentile": 0.75,
+
 }
 # -------------------------------------------------------------------------------
 
@@ -101,21 +109,65 @@ def _path(value):
     return path if path.is_absolute() else Path(__file__).resolve().parent / path
 
 
+def _input_path(config):
+    value = config.get("input_file", config.get("h5oina_file"))
+    if value is None:
+        raise ValueError("set input_file to a .h5oina or .bcf dataset")
+    return _path(value)
+
+
+def _open_reader(path, config):
+    pattern_type = config.get("pattern_type", config.get("h5_pattern_type", "processed"))
+    if path.suffix.lower() == ".bcf":
+        device_id = (config.get("roi_gpu_device_id", 0)
+                     if config.get("analysis_method", "roi") == "roi" else
+                     config.get("homography_gpu_device_id", 0))
+        return BCFReader(
+            path, pattern_type,
+            processing_device=config.get("bcf_preprocess_device", "cpu"),
+            gpu_device_id=device_id,
+            lmsd_sigma_factor=config.get("bcf_lmsd_sigma_factor", 0.047),
+            lmsd_radius_factor=config.get("bcf_lmsd_radius_factor", 0.0375),
+            lmsd_edge_mode=config.get("bcf_lmsd_edge_mode", "truncate"),
+            lmsd_clip_percentile=config.get("bcf_lmsd_clip_percentile", 0.75),
+        )
+    if path.suffix.lower() in (".h5oina", ".h5", ".hdf5"):
+        return H5OINAReader(path, config.get("h5_scan_group"), pattern_type,
+                            pc_source=config.get("h5_pc_source", "ebsd"))
+    raise ValueError("input_file must have a .h5oina, .h5, .hdf5, or .bcf extension")
+
+
+def _reference_index(reader, config):
+    point = config.get("reference_map_point")
+    if point is not None:
+        index = reader.map_index(*point)
+    elif config.get("reference_index") is not None:
+        index = int(config["reference_index"])
+    else:
+        available = reader.available_indices()
+        if not len(available):
+            raise ValueError("input contains no stored patterns")
+        index = int(available[0])
+    if not reader.has_pattern(index):
+        raise ValueError(
+            f"reference map index {index} has no stored pattern; "
+            "set reference_map_point to an acquired point")
+    return index
+
+
 def run_beam_shift_calibration(config):
     """Measure effective pixel size on a separate strain-free scan."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    path = _path(config["h5oina_file"])
+    path = _input_path(config)
     output = _path(config["output_dir"])
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"Refusing to overwrite calibration: {output}")
-    with H5OINAReader(path, config.get("h5_scan_group"),
-                       config.get("h5_pattern_type", "processed"),
-                       pc_source=config.get("h5_pc_source", "ebsd")) as reader:
-        column, row = config.get("reference_map_point", (0, 0))
-        reference_index = reader.map_index(column, row)
+    with _open_reader(path, config) as reader:
+        reference_index = _reference_index(reader, config)
+        column, row = reference_index % reader.x_cells, reference_index // reader.x_cells
         report = measure_effective_pixel_size(
             reader, reference_index,
             roi_size_percent=config.get("roi_size_percent", 25.0))
@@ -390,10 +442,9 @@ def _make_h5_context(reader, reference_index, material, config, pc_plane=None):
             "config": config}
 
 
-def _init_h5_worker(path, scan_group, pattern_type, reference_index, material, config, pc_plane):
+def _init_h5_worker(path, reference_index, material, config, pc_plane):
     global _H5_WORKER
-    reader = H5OINAReader(path, scan_group, pattern_type,
-                          pc_source=config.get("h5_pc_source", "ebsd"))
+    reader = _open_reader(Path(path), config)
     _H5_WORKER = _make_h5_context(reader, reference_index, material, config, pc_plane)
 
 
@@ -431,12 +482,11 @@ def run(config=CONFIG):
     orientation = None if configured_euler is None else np.deg2rad(configured_euler)
     output_dir = _path(config["output_dir"])
     mode = config.get("input_mode",
-                      "h5oina" if "h5oina_file" in config else "images")
-    if mode == "h5oina":
-        path = _path(config["h5oina_file"])
-        with H5OINAReader(path, config.get("h5_scan_group"),
-                           config.get("h5_pattern_type", "processed"),
-                           pc_source=config.get("h5_pc_source", "ebsd")) as reader:
+                      "dataset" if ("input_file" in config or "h5oina_file" in config)
+                      else "images")
+    if mode in ("dataset", "h5oina", "bcf"):
+        path = _input_path(config)
+        with _open_reader(path, config) as reader:
             side = min(reader.height, reader.width)
             config = _pattern_config(config, (side, side))
             if config.get("analysis_method", "roi") == "homography":
@@ -453,7 +503,7 @@ def run(config=CONFIG):
             if config["camera_elevation_degrees"] is None:
                 config["camera_elevation_degrees"] = reader.camera_elevation_degrees()
             if config["sample_tilt_degrees"] is None or config["camera_elevation_degrees"] is None:
-                raise ValueError("H5OINA geometry is missing; set sample_tilt_degrees and "
+                raise ValueError("dataset geometry is missing; set sample_tilt_degrees and "
                                  "camera_elevation_degrees explicitly")
             print(f"Geometry: sample tilt {config['sample_tilt_degrees']:.6f} degrees, "
                   f"camera elevation {config['camera_elevation_degrees']:.6f} degrees")
@@ -462,8 +512,8 @@ def run(config=CONFIG):
                 config["phosphor_to_sample"] = reader.phosphor_to_sample(
                     config["sample_tilt_degrees"])
                 if config["phosphor_to_sample"] is None:
-                    raise ValueError("full detector geometry needs Tilt Angle and "
-                                     "Detector Orientation Euler in H5OINA")
+                    raise ValueError("full detector geometry needs sample tilt and "
+                                     "detector orientation metadata")
             elif geometry_mode == "elevation":
                 config["phosphor_to_sample"] = None
             else:
@@ -472,9 +522,7 @@ def run(config=CONFIG):
             if pc_mode not in ("h5", "affine", "beam_shift_eps"):
                 raise ValueError("pc_mode must be 'h5', 'affine', or 'beam_shift_eps'")
             print(f"PC source: {reader.pc_source_path}; mode: {pc_mode}")
-            point = config.get("reference_map_point")
-            reference_index = (reader.map_index(*point) if point is not None
-                               else config["reference_index"])
+            reference_index = _reference_index(reader, config)
             if pc_mode == "affine":
                 pc_plane = fit_pc_plane(reader)
             elif pc_mode == "beam_shift_eps":
@@ -492,8 +540,13 @@ def run(config=CONFIG):
                 raise ValueError("reference pattern center missing; set pattern_center_fallback")
             indices = config.get("scan_indices")
             if indices is None:
-                indices = range(reader.count)
+                indices = reader.available_indices()
             indices = list(indices)
+            missing = [int(index) for index in indices if not reader.has_pattern(index)]
+            if missing:
+                preview = ", ".join(map(str, missing[:5]))
+                suffix = "..." if len(missing) > 5 else ""
+                raise ValueError(f"scan indices without stored patterns: {preview}{suffix}")
             method = config.get("analysis_method", "roi")
             if method == "homography" and config.get("homography_device", "cpu") == "gpu":
                 workers = int(config.get("homography_gpu_workers", 1))
@@ -526,8 +579,7 @@ def run(config=CONFIG):
             else:
                 executor = ProcessPoolExecutor(
                     max_workers=workers, initializer=_init_h5_worker,
-                    initargs=(str(path), reader.scan_group, reader.pattern_type,
-                              reference_index, material, config, pc_plane),
+                    initargs=(str(path), reference_index, material, config, pc_plane),
                 )
                 results = executor.map(_analyze_h5_index, indices, chunksize=4)
             try:
@@ -583,7 +635,7 @@ def run(config=CONFIG):
                                             result.deformation, result.orientation))})
                             if config.get("save_per_pattern_files", False):
                                 name = f"scan_{index:06d}"
-                                source = {"h5oina_file": str(path), "scan_group": reader.scan_group,
+                                source = {"input_file": str(path), "scan_group": reader.scan_group,
                                           "pattern_type": reader.pattern_type,
                                           "pc_source": reader.pc_source,
                                           "pc_mode": pc_mode,
@@ -603,7 +655,7 @@ def run(config=CONFIG):
                     executor.shutdown(wait=True)
     elif mode == "images":
         if int(config.get("pattern_binning", 1)) != 1:
-            raise ValueError("pattern_binning currently requires input_mode='h5oina'")
+            raise ValueError("pattern_binning currently requires a dataset input")
         if orientation is None:
             raise ValueError("reference_euler_degrees is required in images mode")
         reference_path = _path(config["reference_image"])
@@ -630,7 +682,7 @@ def run(config=CONFIG):
                          {"reference_image": str(reference_path), "scan_image": str(scan_path)},
                          material)
     else:
-        raise ValueError("input_mode must be 'h5oina' or 'images'")
+        raise ValueError("input_mode must be 'dataset' or 'images'")
 
 
 if __name__ == "__main__":

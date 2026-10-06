@@ -1,4 +1,4 @@
-"""Detect grains from H5OINA orientations without rerunning pattern correlation."""
+"""Detect grains from dataset orientations without rerunning correlation."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 
 from pyhrebsd.grains import GrainMap, segment_grains
-from pyhrebsd.h5oina import H5OINAReader
 
 
 def save_grain_map(grains: GrainMap, output_dir: Path, contrast: np.ndarray | None = None) -> None:
@@ -60,7 +59,7 @@ def save_grain_map(grains: GrainMap, output_dir: Path, contrast: np.ndarray | No
     plt.close(fig)
 
 
-def detect_from_reader(reader: H5OINAReader, output_dir: Path,
+def detect_from_reader(reader, output_dir: Path,
                        threshold_degrees: float = 5.0, min_size: int = 5,
                        symmetry: str = "cubic") -> GrainMap:
     eulers, phases, contrast = reader.grain_inputs()
@@ -73,10 +72,11 @@ def detect_from_reader(reader: H5OINAReader, output_dir: Path,
 
 
 def main() -> None:
-    from run_pyhrebsd import CONFIG, _path
+    from run_pyhrebsd import CONFIG, _input_path, _open_reader, _path
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--h5oina", type=Path, default=_path(CONFIG["h5oina_file"]))
+    parser.add_argument("--input-file", "--h5oina", dest="input_file", type=Path,
+                        default=_input_path(CONFIG))
     parser.add_argument("--output-dir", type=Path, default=_path(CONFIG["output_dir"]))
     parser.add_argument("--threshold-degrees", type=float,
                         default=CONFIG.get("grain_threshold_degrees", 5.0))
@@ -84,8 +84,8 @@ def main() -> None:
     parser.add_argument("--symmetry", choices=("cubic", "none"),
                         default=CONFIG.get("grain_symmetry", "cubic"))
     args = parser.parse_args()
-    with H5OINAReader(args.h5oina, CONFIG.get("h5_scan_group"),
-                       CONFIG.get("h5_pattern_type", "processed")) as reader:
+    run_config = dict(CONFIG, input_file=str(args.input_file))
+    with _open_reader(args.input_file, run_config) as reader:
         detect_from_reader(reader, args.output_dir, args.threshold_degrees,
                            args.min_size, args.symmetry)
 
