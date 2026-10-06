@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from pyhrebsd.bcf import BCFReader, U64_MAX, _dynamic_lmsd
+from pyhrebsd.bcf import BCFReader, U64_MAX, correct_pattern_dynamic_lmsd
 from pyhrebsd.geometry import euler_to_matrix
 from run_pyhrebsd import _reference_index
 
@@ -67,6 +67,7 @@ class BCFReaderTests(unittest.TestCase):
     def test_reads_raw_patterns_geometry_pc_and_indexing(self):
         with BCFReader(Path("scan.bcf"), "unprocessed") as reader:
             self.assertEqual((reader.count, reader.height, reader.width), (2, 3, 4))
+            self.assertFalse(reader.has_unprocessed_static_background())
             np.testing.assert_array_equal(reader.uncropped_pattern(1),
                                           np.arange(12).reshape(3, 4) + 100)
             np.testing.assert_array_equal(reader.pattern(0),
@@ -86,7 +87,7 @@ class BCFReaderTests(unittest.TestCase):
 
     def test_dynamic_lmsd_returns_eight_bit_pattern(self):
         image = np.random.default_rng(5).integers(0, 65535, (48, 64), dtype=np.uint16)
-        corrected = _dynamic_lmsd(image, 0.047, 0.0375, "truncate", 0.75, "cpu", 0)
+        corrected = correct_pattern_dynamic_lmsd(image, 0.047, 0.0375, "truncate", 0.75, "cpu", 0)
         self.assertEqual(corrected.shape, image.shape)
         self.assertEqual(corrected.dtype, np.uint8)
         self.assertGreater(np.ptp(corrected), 0)

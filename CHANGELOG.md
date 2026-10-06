@@ -3,8 +3,11 @@
 ## Unreleased
 
 - Added direct, lazy Bruker ESPRIT BCF input for ROI and homography analysis.
-- Added CPU and CUDA dynamic-LMSD processing of raw BCF patterns.
+- Added CPU and CUDA dynamic-LMSD processing of raw BCF patterns and
+  unprocessed H5OINA patterns without a stored static background.
 - Added BCF acquisition-geometry, per-point PC, indexing, and grain metadata.
+- Interpret wrapped signed H5OINA raw-pattern storage as unsigned detector
+  intensities.
 - Added sparse-BCF handling that skips missing map slots and can select the
   first stored pattern automatically as the reference.
 - Replaced the primary configuration keys with format-neutral `input_file` and

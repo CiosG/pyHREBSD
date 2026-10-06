@@ -81,6 +81,11 @@ Elastic constants, their verification status, and literature references are
 stored in `pyhrebsd/materials.h5`; see
 [the material database notes](docs/materials.md).
 
+For `pattern_type="unprocessed"`, the default `static_lmsd` correction uses
+the H5OINA static background when available. If that dataset is absent, the
+runner reports the fallback and applies `dynamic_lmsd` independently to every
+pattern. Set `unprocessed_preprocess_device` to `"cpu"` or `"gpu"`.
+
 ## Beam-shift calibration
 
 Use a separate strain-free single-crystal scan acquired with the same detector
@@ -117,9 +122,9 @@ Set `input_file` to the `.bcf` file. With `pattern_type="processed"`, PyHREBSD
 reads each raw pattern lazily and applies dynamic-background LMSD correction in
 memory; no intermediate H5OINA file is written. Select CPU or CUDA for this
 step with `bcf_preprocess_device`. With `pattern_type="unprocessed"`, the raw
-8- or 16-bit pattern is passed to the general raw-pattern correction settings;
-select `divide_gaussian`, `subtract_gaussian`, or `none`, because BCF normally
-does not contain the static-background image required by `static_lmsd`.
+8- or 16-bit pattern is passed to the general raw-pattern correction settings.
+If `static_lmsd` is selected but no static-background image exists, PyHREBSD
+automatically uses the same per-pattern dynamic LMSD correction.
 
 BCF pattern centres are reconstructed for every map point from the stored PC,
 working distance, phosphor size, scan calibration, detector tilt, specimen

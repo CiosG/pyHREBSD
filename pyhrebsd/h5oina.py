@@ -126,7 +126,17 @@ class H5OINAReader:
     def uncropped_pattern(self, index: int) -> np.ndarray:
         """Return the full rectangular detector image before analysis cropping."""
         self._check_index(index)
-        return np.asarray(self._patterns[index], dtype=np.float64)
+        image = np.asarray(self._patterns[index])
+        # Some H5OINA writers store unsigned detector words in a signed integer
+        # container. Reinterpret wrapped negative values without changing bits.
+        if np.issubdtype(image.dtype, np.signedinteger) and np.any(image < 0):
+            image = image.view(np.dtype(f"u{image.dtype.itemsize}"))
+        return np.asarray(image, dtype=np.float64)
+
+    def has_unprocessed_static_background(self) -> bool:
+        """Return whether H5OINA contains a standalone static background."""
+        return (self._header is not None and
+                "Unprocessed Static Background" in self._header)
 
     def unprocessed_static_background(self) -> np.ndarray:
         """Return the full detector static background embedded in H5OINA."""

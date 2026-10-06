@@ -14,7 +14,9 @@ uncropped detector width unless a function explicitly documents pixel units.
 into memory. `pattern_type="processed"` selects the processed 8-bit stack;
 `"unprocessed"` selects the raw stack. Rectangular patterns are cropped to a
 centered square for correlation, and the pattern center is transformed to the
-cropped detector coordinates.
+cropped detector coordinates. If a writer stores unsigned detector words in a
+signed integer dataset, wrapped negative values are reinterpreted as unsigned
+intensities without changing their bits.
 
 Per-point pattern centers can be selected from either `/<scan>/EBSD/Data` or
 `/<scan>/Data Processing/Data`. The selected source is recorded in the output.
@@ -51,9 +53,9 @@ filters for every pattern. `bcf_preprocess_device` selects the NumPy/SciPy or
 CuPy/CUDA implementation. CPU and GPU paths implement the same operations.
 
 `pattern_type="unprocessed"` returns the original unsigned intensity values.
-BCF does not normally contain a separate static-background image, so
-`static_lmsd` is invalid for this path; select `divide_gaussian`,
-`subtract_gaussian`, or `none` if raw BCF patterns are analyzed directly.
+BCF does not normally contain a separate static-background image. When
+`static_lmsd` is requested for raw BCF data, the runner automatically selects
+the per-pattern dynamic LMSD correction.
 The BCF reader is implemented directly in PyHREBSD and does not require an
 intermediate conversion or Bruker software library.
 
@@ -64,7 +66,11 @@ Background correction is applied only when
 The selected `unprocessed_background_mode` has the following behavior:
 
 - `static_lmsd` uses the static detector background embedded at
-  `/<scan>/EBSD/Header/Unprocessed Static Background`;
+  `/<scan>/EBSD/Header/Unprocessed Static Background`; if it is absent, the
+  runner automatically switches to `dynamic_lmsd`;
+- `dynamic_lmsd` estimates the Gaussian background and local normalization
+  independently for every full detector pattern, using the same calculation
+  as processed BCF input;
 - `divide_gaussian` estimates a broad background independently for every
   pattern and divides the pattern by it;
 - `subtract_gaussian` estimates a broad background independently for every
@@ -75,8 +81,9 @@ For `static_lmsd`, the H5 dataset must be a single two-dimensional image with
 the same full rectangular shape as every unprocessed detector pattern. It is
 loaded once when an analysis context is created and reused for the reference
 and all target patterns. Parallel worker processes each create their own
-reader and load their own copy once. A missing dataset or a shape mismatch is
-an error; PyHREBSD does not silently substitute a generated background.
+reader and load their own copy once. A missing dataset selects
+`dynamic_lmsd`; an existing static background with an incompatible shape is
+still reported as an error.
 
 The `static_lmsd` pipeline is executed in this order:
 

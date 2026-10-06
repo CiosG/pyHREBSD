@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from pyhrebsd.analysis import Material, analyze_pair, prepare_analysis
-from pyhrebsd.bcf import BCFReader
+from pyhrebsd.bcf import BCFReader, correct_pattern_dynamic_lmsd
 from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.homography import analyze_homography, prepare_homography
@@ -79,13 +79,12 @@ CONFIG = {
     "grain_min_size": 5,
     "grain_symmetry": "cubic",  # use "none" only if crystal symmetry is unknown
 
-    # Optional H5 raw-pattern correction; used only for pattern_type="unprocessed".
-    # "static_lmsd" divides every full detector pattern by the single image at
-    # /<scan>/EBSD/Header/Unprocessed Static Background, removes a Gaussian
-    # background, applies local mean/std normalization, and then crops/bins.
-    # Other choices: "divide_gaussian", "subtract_gaussian", or "none".
+    # Optional raw-pattern correction; used only for pattern_type="unprocessed".
+    # "static_lmsd" uses the H5 static background when present and automatically
+    # falls back to per-pattern "dynamic_lmsd" when it is absent. Other choices:
+    # "dynamic_lmsd", "divide_gaussian", "subtract_gaussian", or "none".
     "unprocessed_background_mode": "static_lmsd",
-    # Used only by divide_gaussian/subtract_gaussian; ignored by static_lmsd.
+    # Used only by divide_gaussian/subtract_gaussian; ignored by LMSD modes.
     "unprocessed_background_sigma_pixels": 64.0,  # absolute raw-pattern pixels
     "unprocessed_background_downsample": 8,  # estimate background on every 8th pixel
     # Used only by static_lmsd; both are fractions of the original detector width.
@@ -93,12 +92,12 @@ CONFIG = {
     "unprocessed_lmsd_factor": 0.183,  # LMSD radius = int(width * factor)
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
 
-    # Optional BCF dynamic-LMSD correction used for pattern_type="processed".
+    # Dynamic-LMSD settings used by processed BCF and raw H5 fallback.
     "bcf_preprocess_device": "cpu",
-    "bcf_lmsd_sigma_factor": 0.047,  # Gaussian sigma / detector width
-    "bcf_lmsd_radius_factor": 0.0375,  # LMSD radius / detector width
-    "bcf_lmsd_edge_mode": "truncate",
-    "bcf_lmsd_clip_percentile": 0.75,
+    "dynamic_lmsd_sigma_factor": 0.047,  # Gaussian sigma / detector width
+    "dynamic_lmsd_radius_factor": 0.0375,  # LMSD radius / detector width
+    "dynamic_lmsd_edge_mode": "truncate",
+    "dynamic_lmsd_clip_percentile": 0.75,
 
 }
 # -------------------------------------------------------------------------------
@@ -126,10 +125,15 @@ def _open_reader(path, config):
             path, pattern_type,
             processing_device=config.get("bcf_preprocess_device", "cpu"),
             gpu_device_id=device_id,
-            lmsd_sigma_factor=config.get("bcf_lmsd_sigma_factor", 0.047),
-            lmsd_radius_factor=config.get("bcf_lmsd_radius_factor", 0.0375),
-            lmsd_edge_mode=config.get("bcf_lmsd_edge_mode", "truncate"),
-            lmsd_clip_percentile=config.get("bcf_lmsd_clip_percentile", 0.75),
+            lmsd_sigma_factor=config.get(
+                "dynamic_lmsd_sigma_factor", config.get("bcf_lmsd_sigma_factor", 0.047)),
+            lmsd_radius_factor=config.get(
+                "dynamic_lmsd_radius_factor", config.get("bcf_lmsd_radius_factor", 0.0375)),
+            lmsd_edge_mode=config.get(
+                "dynamic_lmsd_edge_mode", config.get("bcf_lmsd_edge_mode", "truncate")),
+            lmsd_clip_percentile=config.get(
+                "dynamic_lmsd_clip_percentile",
+                config.get("bcf_lmsd_clip_percentile", 0.75)),
         )
     if path.suffix.lower() in (".h5oina", ".h5", ".hdf5"):
         return H5OINAReader(path, config.get("h5_scan_group"), pattern_type,
@@ -378,15 +382,27 @@ def _h5_pc(reader, index, config, pc_plane):
 
 def _h5_pattern(reader, index, config, static_background=None):
     mode = config.get("unprocessed_background_mode", "static_lmsd")
-    if reader.pattern_type == "unprocessed" and mode == "static_lmsd":
-        if static_background is None:
-            static_background = reader.unprocessed_static_background()
+    if reader.pattern_type == "unprocessed" and mode in ("static_lmsd", "dynamic_lmsd"):
         device = config.get("unprocessed_preprocess_device", "cpu")
-        if device == "gpu":
+        gpu_device_id = (config.get("roi_gpu_device_id", 0)
+                         if config.get("analysis_method", "roi") == "roi" else
+                         config.get("homography_gpu_device_id", 0))
+        if mode == "dynamic_lmsd":
+            corrected = correct_pattern_dynamic_lmsd(
+                reader.uncropped_pattern(index),
+                config.get("dynamic_lmsd_sigma_factor",
+                           config.get("bcf_lmsd_sigma_factor", 0.047)),
+                config.get("dynamic_lmsd_radius_factor",
+                           config.get("bcf_lmsd_radius_factor", 0.0375)),
+                config.get("dynamic_lmsd_edge_mode",
+                           config.get("bcf_lmsd_edge_mode", "truncate")),
+                config.get("dynamic_lmsd_clip_percentile",
+                           config.get("bcf_lmsd_clip_percentile", 0.75)),
+                device, gpu_device_id)
+        elif static_background is None:
+            raise ValueError("static_lmsd requires a static background or resolved dynamic fallback")
+        elif device == "gpu":
             from pyhrebsd.preprocess_gpu import correct_pattern_static_lmsd_gpu
-            gpu_device_id = (config.get("roi_gpu_device_id", 0)
-                             if config.get("analysis_method", "roi") == "roi" else
-                             config.get("homography_gpu_device_id", 0))
             corrected = correct_pattern_static_lmsd_gpu(
                 reader.uncropped_pattern(index), static_background,
                 sigma_factor=config.get("unprocessed_static_sigma_factor", 0.02),
@@ -414,10 +430,14 @@ def _h5_pattern(reader, index, config, static_background=None):
 
 
 def _make_h5_context(reader, reference_index, material, config, pc_plane=None):
-    static_background = (
-        reader.unprocessed_static_background()
-        if reader.pattern_type == "unprocessed" and
-        config.get("unprocessed_background_mode", "static_lmsd") == "static_lmsd" else None)
+    static_background = None
+    if (reader.pattern_type == "unprocessed" and
+            config.get("unprocessed_background_mode", "static_lmsd") == "static_lmsd"):
+        try:
+            static_background = reader.unprocessed_static_background()
+        except KeyError:
+            config = dict(config)
+            config["unprocessed_background_mode"] = "dynamic_lmsd"
     reference = _h5_pattern(reader, reference_index, config, static_background)
     config = _pattern_config(config, reference.shape)
     orientation = (reader.orientation(reference_index)
@@ -487,6 +507,12 @@ def run(config=CONFIG):
     if mode in ("dataset", "h5oina", "bcf"):
         path = _input_path(config)
         with _open_reader(path, config) as reader:
+            if (reader.pattern_type == "unprocessed" and
+                    config.get("unprocessed_background_mode", "static_lmsd") == "static_lmsd" and
+                    not reader.has_unprocessed_static_background()):
+                config = dict(config)
+                config["unprocessed_background_mode"] = "dynamic_lmsd"
+                print("Static background unavailable; using per-pattern dynamic LMSD")
             side = min(reader.height, reader.width)
             config = _pattern_config(config, (side, side))
             if config.get("analysis_method", "roi") == "homography":

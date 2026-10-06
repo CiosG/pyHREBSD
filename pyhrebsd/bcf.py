@@ -306,12 +306,12 @@ def _pattern_center_from_model(model, column, row):
     return x, (1.0 - y) / model["aspect"], z / model["aspect"]
 
 
-def _dynamic_lmsd(image, sigma_factor, radius_factor, edge_mode, clip_percentile,
+def correct_pattern_dynamic_lmsd(image, sigma_factor, radius_factor, edge_mode, clip_percentile,
                   device, gpu_device_id):
     if edge_mode not in ("truncate", "reflect", "nearest"):
-        raise ValueError("BCF LMSD edge mode must be truncate, reflect, or nearest")
+        raise ValueError("dynamic LMSD edge mode must be truncate, reflect, or nearest")
     if sigma_factor <= 0 or radius_factor < 0 or not 0 <= clip_percentile < 50:
-        raise ValueError("invalid BCF dynamic-LMSD settings")
+        raise ValueError("invalid dynamic-LMSD settings")
     if device == "gpu":
         _enable_windows_conda_dlls()
         import cupy as xp
@@ -321,7 +321,7 @@ def _dynamic_lmsd(image, sigma_factor, radius_factor, edge_mode, clip_percentile
     elif device == "cpu":
         xp, gaussian, uniform = np, gaussian_filter, uniform_filter
     else:
-        raise ValueError("BCF processing device must be 'cpu' or 'gpu'")
+        raise ValueError("dynamic LMSD device must be 'cpu' or 'gpu'")
     values = xp.asarray(image, dtype=xp.float32)
     sigma = values.shape[1] * sigma_factor
     size = 2 * int(values.shape[1] * radius_factor) + 1
@@ -475,7 +475,7 @@ class BCFReader:
         dtype = "<u2" if bpp == 2 else np.uint8
         image = np.frombuffer(raw, dtype=dtype).reshape(height, width)
         if self.pattern_type == "processed":
-            image = _dynamic_lmsd(
+            image = correct_pattern_dynamic_lmsd(
                 image, self.lmsd_sigma_factor, self.lmsd_radius_factor,
                 self.lmsd_edge_mode, self.lmsd_clip_percentile,
                 self.processing_device, self.gpu_device_id)
@@ -486,6 +486,10 @@ class BCFReader:
         side = min(self.width, self.height)
         top, left = (self.height - side) // 2, (self.width - side) // 2
         return image[top:top + side, left:left + side]
+
+    def has_unprocessed_static_background(self):
+        """BCF does not expose a standalone static-background image."""
+        return False
 
     def unprocessed_static_background(self):
         raise KeyError("BCF contains no standalone static-background image; use processed "

@@ -50,7 +50,48 @@ class H5OINATests(unittest.TestCase):
                 with self.assertRaises(IndexError):
                     reader.pattern(3)
             with H5OINAReader(path, pattern_type="unprocessed") as reader:
+                self.assertFalse(reader.has_unprocessed_static_background())
                 np.testing.assert_array_equal(reader.pattern(1), patterns[1, :, 2:14].astype(np.int16) * 2)
+
+    def test_signed_raw_storage_is_interpreted_as_unsigned_intensity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "scan.h5oina"
+            patterns = np.zeros((1, 8, 8), dtype=np.uint8)
+            self._make_file(path, patterns)
+            with h5py.File(path, "a") as file:
+                raw = file["1/EBSD/Data/Unprocessed Patterns"]
+                raw[0, 0, 0] = -1
+                raw[0, 0, 1] = -32768
+            with H5OINAReader(path, pattern_type="unprocessed") as reader:
+                image = reader.uncropped_pattern(0)
+            self.assertEqual(image[0, 0], 65535)
+            self.assertEqual(image[0, 1], 32768)
+
+    def test_missing_static_background_falls_back_to_dynamic_lmsd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            path = directory / "scan.h5oina"
+            pattern = np.random.default_rng(41).integers(0, 255, size=(128, 128), dtype=np.uint8)
+            self._make_file(path, np.stack((pattern, pattern)))
+            config = {
+                "input_file": str(path), "pattern_type": "unprocessed",
+                "unprocessed_background_mode": "static_lmsd",
+                "unprocessed_preprocess_device": "cpu",
+                "reference_map_point": (0, 0), "scan_indices": [1],
+                "output_dir": str(directory / "results"),
+                "material_database": "pyhrebsd/materials.h5",
+                "material_name": "copper", "reference_euler_degrees": None,
+                "sample_tilt_degrees": 70, "camera_elevation_degrees": 10,
+                "detector_geometry": "elevation", "pc_mode": "h5",
+                "pattern_binning": 1, "roi_size": 24, "roi_count": 49,
+                "roi_layout": "grid", "roi_filter": None,
+                "outlier_standard_deviation": 2, "workers": 1,
+            }
+            run(config)
+            with (directory / "results" / "scan_results.csv").open(newline="") as stream:
+                row = next(csv.DictReader(stream))
+            self.assertEqual(row["status"], "ok")
+            self.assertEqual(row["scan_index"], "1")
 
     def test_missing_pattern_centers_use_config_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
