@@ -52,8 +52,8 @@ CONFIG = {
     "beam_shift_detector_x_sign": "auto",  # infer source PC slope; or copy -1/+1 from calibration
 
     # Optional geometry overrides; None reads the value from the selected input source.
-    "detector_geometry": "full",  # H5OINA/TFS: "full" uses all 3 detector Euler angles;
-    # "elevation" uses only camera elevation; BCF currently supplies elevation only.
+    "detector_geometry": "full",  # H5OINA/TFS: full uses all 3 detector Euler angles;
+    # BCF provides elevation geometry only, so it effectively uses "elevation".
     "reference_euler_degrees": None,
     "sample_tilt_degrees": None,  # None reads sample tilt from the selected input source
     "camera_elevation_degrees": None,  # None reads source-specific detector elevation:

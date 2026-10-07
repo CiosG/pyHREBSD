@@ -63,8 +63,8 @@ driver and CUDA runtime. CPU mode never imports CuPy.
    `reference_map_point`, and `pattern_binning`.
 3. Leave geometry overrides as `None` to read sample tilt, reference
    orientation, and detector orientation from the dataset. The default
-   `detector_geometry="full"` uses all three detector Euler angles when the
-   source provides them; BCF currently supplies elevation geometry only.
+   `detector_geometry="full"` uses all three detector Euler angles for H5OINA
+   and TFS when available. BCF provides elevation geometry only.
 4. Select `"cpu"` or `"gpu"` separately for the chosen registration method.
    CPU analysis defaults to the number of logical processors minus one;
    set `workers=1` when validating a new configuration.
