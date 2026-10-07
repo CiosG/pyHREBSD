@@ -56,7 +56,8 @@ CONFIG = {
     # "elevation" uses only the camera elevation; BCF currently supplies elevation only.
     "reference_euler_degrees": None,
     "sample_tilt_degrees": None,  # None reads sample tilt from the selected input source
-    "camera_elevation_degrees": None,  # None reads detector elevation from the selected input source
+    "camera_elevation_degrees": None,  # None reads source-specific detector elevation:
+    # H5OINA: detector Euler Phi - 90 deg; TFS: DCStoSCS geometry; BCF: CameraTilt.
 
     # Optional execution and output settings.
     "workers": max(1, (os.cpu_count() or 2) - 1),  # logical CPU cores minus one or set value by hand
