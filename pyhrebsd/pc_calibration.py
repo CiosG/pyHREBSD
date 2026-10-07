@@ -350,7 +350,7 @@ def pc_plane_from_effective_pixel_size(reader,
                                        detector_x_shift_sign: int | str = "auto") -> PCPlane:
     """Apply a separately calibrated EPS to scan-X PC drift, once.
 
-    The H5 PC plane supplies the absolute PC and all other gradients. The
+    The source PC plane supplies the absolute PC and all other gradients. The
     external EPS replaces only the detector-X displacement per map column;
     both ROI and homography solvers then use this PC plane directly.
     """
@@ -386,7 +386,7 @@ def pc_plane_from_effective_pixel_size(reader,
     diagnostics = {
         "description": "external effective pixel size replaces only "
                        "X-versus-map-column PC slope; reference PC and other "
-                       "gradients remain from H5OINA",
+                       "gradients remain from the source PC plane",
         "effective_pixel_size_um_per_pixel": float(effective_pixel_size_um),
         "detector_x_shift_sign": detector_x_shift_sign,
         "x_step_um": x_step,
@@ -399,7 +399,7 @@ def pc_plane_from_effective_pixel_size(reader,
             zip("xyz", baseline.rms_residual_pixels)),
         "reference_map_point": [column0, row0],
         "reference_pc": list(reference_pc),
-        "vertical_pc_gradient_source": "H5OINA PC plane",
+        "vertical_pc_gradient_source": "source PC plane",
         "absolute_pc_calibrated_independently": False,
     }
     return PCPlane(coefficients, baseline.points_used, baseline.points_total,
@@ -413,7 +413,7 @@ def fit_beam_shift_pc_plane(reader, pattern_reader,
                             spacing: int = 8, extent_um: float = 100.0) -> PCPlane:
     """Calibrate scan-induced PC translation from two strain-free lines.
 
-    The H5 PC plane supplies the absolute PC and all gradients except
+    The source PC plane supplies the absolute PC and all gradients except
     X-versus-map-column. The vertical line is measured for diagnostics only;
     its slope is not used for the EPS calibration. The calibration line must
     be strain-free and use the analysis geometry.
@@ -428,7 +428,7 @@ def fit_beam_shift_pc_plane(reader, pattern_reader,
         raise ValueError("spacing and extent_um must be positive")
     baseline = fit_pc_plane(reader)
     if baseline is None:
-        raise ValueError("beam-shift calibration needs a reference PC in H5OINA")
+        raise ValueError("beam-shift calibration needs a reference PC")
     reference = pattern_reader.pattern(reference_index)
     size = reference.shape[0]
     if reference.ndim != 2 or reference.shape[1] != size:
@@ -472,8 +472,8 @@ def fit_beam_shift_pc_plane(reader, pattern_reader,
         coefficients[0, 2] * row0
     diagnostics = {
         "description": "PC-centred ROI shifts on two lines; only the X shift "
-                       "per map column replaces the H5 PC slope. The vertical "
-                       "line is diagnostic; all other gradients remain H5 anchored",
+                       "per map column replaces the source PC slope. The vertical "
+                       "line is diagnostic; all other gradients remain source anchored",
         "reference_map_point": [column0, row0],
         "reference_pc": list(pc), "calibration_pattern_type": pattern_reader.pattern_type,
         "roi_size_pixels": roi_size, "roi_center_pixels": center[0].tolist(),
@@ -482,7 +482,7 @@ def fit_beam_shift_pc_plane(reader, pattern_reader,
         "x_line": x_fit, "y_line": y_fit,
         "effective_pixel_size_um_per_pixel_x": abs(x_step / x_slope),
         "vertical_line_used_for_pc": False,
-        "h5_pc_slope_pixels_per_map_step": (baseline.coefficients[:, 1:] * size).tolist(),
+        "source_pc_slope_pixels_per_map_step": (baseline.coefficients[:, 1:] * size).tolist(),
         "absolute_pc_calibrated_independently": False,
     }
     return PCPlane(coefficients, x_fit["points_used"], x_fit["points_total"],

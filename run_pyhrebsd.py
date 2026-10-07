@@ -146,7 +146,7 @@ def _open_reader(path, config):
                 config.get("bcf_lmsd_clip_percentile", 0.75)),
         )
     if path.name.lower().endswith(".tfs.hdf5"):
-        return TFSReader(path, pattern_type, pc_source=config.get("h5_pc_source", "ebsd"))
+        return TFSReader(path, pattern_type)
     if path.suffix.lower() in (".h5oina", ".h5", ".hdf5"):
         return H5OINAReader(path, config.get("h5_scan_group"), pattern_type,
                             pc_source=config.get("h5_pc_source", "ebsd"))
@@ -528,6 +528,8 @@ def run(config=CONFIG):
     configured_euler = config["reference_euler_degrees"]
     orientation = None if configured_euler is None else np.deg2rad(configured_euler)
     output_dir = _path(config["output_dir"])
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise FileExistsError(f"Refusing to overwrite analysis results: {output_dir}")
     mode = config.get("input_mode",
                       "dataset" if ("input_file" in config or "h5oina_file" in config)
                       else "images")

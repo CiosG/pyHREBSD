@@ -1,8 +1,8 @@
 # PyHREBSD
 
 PyHREBSD is a Python research implementation of high-resolution electron
-backscatter diffraction analysis. It reads Thermo Fisher `.tfs.hdf5`, Oxford Instruments `.h5oina`, and
-Bruker ESPRIT `.bcf` files directly and provides two complementary registration methods:
+backscatter diffraction analysis. It reads Thermo Fisher `.tfs.hdf5`, Oxford
+Instruments `.h5oina`, and Bruker ESPRIT `.bcf` files directly and provides two complementary registration methods:
 
 - multi-ROI FFT cross-correlation with optional two-pass remapping;
 - whole-pattern inverse-compositional homography fitting.
@@ -63,7 +63,8 @@ driver and CUDA runtime. CPU mode never imports CuPy.
    `reference_map_point`, and `pattern_binning`.
 3. Leave geometry overrides as `None` to read sample tilt, reference
    orientation, and detector orientation from the dataset. The default
-   `detector_geometry="full"` uses all three detector Euler angles.
+   `detector_geometry="full"` uses all three detector Euler angles when the
+   source provides them; BCF currently supplies elevation geometry only.
 4. Select `"cpu"` or `"gpu"` separately for the chosen registration method.
    CPU analysis defaults to the number of logical processors minus one;
    set `workers=1` when validating a new configuration.
@@ -84,16 +85,17 @@ stored in `pyhrebsd/materials.h5`; see
 For TFS input, `pattern_type="processed"` is selected automatically; TFS exports
 contain processed patterns, map PC values, Euler angles, phases, and sample geometry.
 
-For `pattern_type="unprocessed"`, the default `static_lmsd` correction uses
-the H5OINA static background when available. If that dataset is absent, the
-runner reports the fallback and applies `dynamic_lmsd` independently to every
-pattern. Set `unprocessed_preprocess_device` to `"cpu"` or `"gpu"`.
+For `pattern_type="unprocessed"`, H5OINA uses its static background when
+available and otherwise falls back to per-pattern `dynamic_lmsd`; BCF uses the
+same dynamic fallback because it has no standalone static image. TFS exports
+currently provide processed patterns only. Set `unprocessed_preprocess_device`
+to `"cpu"` or `"gpu"`.
 
 ## Beam-shift calibration
 
 Use a separate strain-free single-crystal scan acquired with the same detector
 resolution, geometry, SEM conditions, and scan convention as the analysis.
-Set the common H5 settings once and change:
+Set the common input-source settings once and change:
 
 ```python
 "run_mode": "calibration",
@@ -115,7 +117,8 @@ projective warp at the PC. It uses `homography_device`,
 `homography_max_iterations`. Optional `calibration_line_extent_um` and
 `calibration_line_spacing` restrict or subsample the selected row.
 
-For the subsequent analysis, select its H5OINA file and set:
+For the subsequent analysis, select the corresponding H5OINA, TFS, or BCF
+file and set:
 
 ```python
 "run_mode": "analysis",

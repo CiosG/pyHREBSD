@@ -29,6 +29,22 @@ When no explicit overrides are supplied, sample tilt and the full Oxford
 detector orientation are read from the H5OINA header. Euler orientations use
 the Bunge convention implemented in `pyhrebsd.geometry`.
 
+## Thermo Fisher TFS HDF5 input
+
+`TFSReader` reads xTalView `.tfs.hdf5` exports directly from the public
+Thermo Fisher layout. Patterns are read lazily from
+`/Site/EBSD/Patterns/Processed`; TFS exports currently provide processed
+patterns only. Per-point pattern centers, Euler angles, phases, and indexing
+quality come from `/Site/EBSD/MapData`. TFS map coordinates are stored as
+`(row, column)` and are exposed as the common zero-based row-major index
+`row * x_cells + column`.
+
+TFS pattern centers use the xTalView normalized detector convention and are
+transformed to the same centered-square coordinates as H5OINA. `SpecimenTilt`
+is read in radians and reported in degrees. The detector-to-sample
+transformation is reconstructed from `DCStoSCS` and specimen tilt, so
+`detector_geometry="full"` can use the complete reconstructed orientation.
+The `h5_pc_source` setting is ignored for TFS; TFS has one `MapData` PC source.
 ## Bruker BCF input
 
 `BCFReader` performs read-only random access to the AidAim SFS container and
