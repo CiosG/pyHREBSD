@@ -32,10 +32,10 @@ CONFIG = {
 
     # Required for run_mode="analysis".
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
-    "pattern_type": "processed",  # H5: "processed" is stored 8-bit; "unprocessed" is raw 16-bit
-    # BCF: "processed" uses dynamic-LMSD 8-bit in memory; "unprocessed" keeps raw intensity
-    "h5_pc_source": "ebsd",  # H5 only: "ebsd" or "data_processing"; BCF uses acquisition PC
-    "pc_mode": "h5",  # "h5", fitted "affine", or calibrated "beam_shift_eps"
+    "pattern_type": "processed",  # H5OINA: processed=stored 8-bit, unprocessed=raw 16-bit; TFS: processed only
+    # BCF: processed=dynamic-LMSD 8-bit in memory, unprocessed=raw intensity plus selected correction
+    "h5_pc_source": "ebsd",  # H5OINA only: "ebsd" or "data_processing"; TFS uses MapData PC, BCF acquisition PC
+    "pc_mode": "h5",  # source PC, fitted "affine", or calibrated "beam_shift_eps"
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
@@ -49,11 +49,11 @@ CONFIG = {
     "material_database": "pyhrebsd/materials.h5",
     "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width
     "beam_shift_effective_pixel_size_um": None,  # required only for pc_mode="beam_shift_eps"
-    "beam_shift_detector_x_sign": "auto",  # H5 PC slope sign; or copy -1/+1 from calibration
+    "beam_shift_detector_x_sign": "auto",  # infer source PC slope; or copy -1/+1 from calibration
 
-    # Optional geometry overrides; None reads the value from H5.
+    # Optional geometry overrides; None reads the value from the selected input source.
     "detector_geometry": "full",  # H5OINA/TFS: "full" uses all 3 detector Euler angles;
-    # "elevation" uses only the camera elevation; BCF currently supplies elevation only.
+    # "elevation" uses only camera elevation; BCF currently supplies elevation only.
     "reference_euler_degrees": None,
     "sample_tilt_degrees": None,  # None reads sample tilt from the selected input source
     "camera_elevation_degrees": None,  # None reads source-specific detector elevation:
@@ -90,8 +90,8 @@ CONFIG = {
     "grain_symmetry": "cubic",  # use "none" only if crystal symmetry is unknown
 
     # Optional raw-pattern correction; used only for pattern_type="unprocessed".
-    # "static_lmsd" uses the H5 static background when present and automatically
-    # falls back to per-pattern "dynamic_lmsd" when it is absent. Other choices:
+    # "static_lmsd" uses the H5OINA static background when present; BCF/TFS have
+    # no standalone static background and use the documented dynamic fallback. Other choices:
     # "dynamic_lmsd", "divide_gaussian", "subtract_gaussian", or "none".
     "unprocessed_background_mode": "static_lmsd",
     # Used only by divide_gaussian/subtract_gaussian; ignored by LMSD modes.
@@ -102,7 +102,7 @@ CONFIG = {
     "unprocessed_lmsd_factor": 0.183,  # LMSD radius = int(width * factor)
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
 
-    # Dynamic-LMSD settings used by processed BCF and raw H5 fallback.
+    # Dynamic-LMSD settings used by processed BCF and raw H5OINA fallback.
     "bcf_preprocess_device": "cpu",
     "dynamic_lmsd_sigma_factor": 0.047,  # Gaussian sigma / detector width
     "dynamic_lmsd_radius_factor": 0.0375,  # LMSD radius / detector width
