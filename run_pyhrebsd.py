@@ -32,7 +32,8 @@ CONFIG = {
 
     # Required for run_mode="analysis".
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
-    "pattern_type": "processed",  # H5: stored 8-bit; BCF: dynamic-LMSD 8-bit in memory
+    "pattern_type": "processed",  # H5: "processed" is stored 8-bit; "unprocessed" is raw 16-bit
+    # BCF: "processed" uses dynamic-LMSD 8-bit in memory; "unprocessed" keeps raw intensity
     "h5_pc_source": "ebsd",  # H5 only: "ebsd" or "data_processing"; BCF uses acquisition PC
     "pc_mode": "h5",  # "h5", fitted "affine", or calibrated "beam_shift_eps"
     "material_name": "silicon",  # database key or the full material name
