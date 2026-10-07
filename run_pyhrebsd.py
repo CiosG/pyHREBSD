@@ -103,10 +103,10 @@ CONFIG = {
     "unprocessed_preprocess_device": "cpu",  # set "gpu" after installing matching CuPy
 
     # Dynamic-LMSD settings used by processed BCF and raw H5OINA fallback.
-    "bcf_preprocess_device": "cpu",
+    "bcf_preprocess_device": "cpu",  # "cpu" or "gpu" for processed BCF dynamic-LMSD correction
     "dynamic_lmsd_sigma_factor": 0.047,  # Gaussian sigma / detector width
     "dynamic_lmsd_radius_factor": 0.0375,  # LMSD radius / detector width
-    "dynamic_lmsd_edge_mode": "truncate",
+    "dynamic_lmsd_edge_mode": "truncate",  # "truncate", "reflect", or "nearest"
     "dynamic_lmsd_clip_percentile": 0.75,
 
 }
