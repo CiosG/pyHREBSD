@@ -52,10 +52,11 @@ CONFIG = {
     "beam_shift_detector_x_sign": "auto",  # H5 PC slope sign; or copy -1/+1 from calibration
 
     # Optional geometry overrides; None reads the value from H5.
-    "detector_geometry": "full",  # "full" uses all three detector Euler angles; "elevation" uses one
+    "detector_geometry": "full",  # H5OINA/TFS: "full" uses all 3 detector Euler angles;
+    # "elevation" uses only the camera elevation; BCF currently supplies elevation only.
     "reference_euler_degrees": None,
-    "sample_tilt_degrees": None,  # None reads Tilt Angle from H5
-    "camera_elevation_degrees": None,  # None reads detector Euler Phi - 90 degrees
+    "sample_tilt_degrees": None,  # None reads sample tilt from the selected input source
+    "camera_elevation_degrees": None,  # None reads detector elevation from the selected input source
 
     # Optional execution and output settings.
     "workers": max(1, (os.cpu_count() or 2) - 1),  # logical CPU cores minus one or set value by hand
