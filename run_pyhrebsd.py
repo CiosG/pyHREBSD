@@ -40,7 +40,8 @@ CONFIG = {
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
-    "edax_ang_file": None,  # optional explicit ANG companion path for UP2
+    "edax_up2_file": None,  # when input_file is .ang: optional .up2 path; None uses the same stem
+    "edax_ang_file": None,  # when input_file is .up2: optional .ang path; None uses the same stem
     "edax_preprocess_device": "cpu",  # CPU or GPU for processed EDAX patterns
 
     # Calibration settings; used only for run_mode="calibration".
@@ -154,6 +155,7 @@ def _open_reader(path, config):
                      config.get("homography_gpu_device_id", 0))
         return open_edax(
             path, pattern_type,
+            up2_path=config.get("edax_up2_file"),
             ang_path=config.get("edax_ang_file"),
             processing_device=config.get("edax_preprocess_device", "cpu"),
             gpu_device_id=device_id,

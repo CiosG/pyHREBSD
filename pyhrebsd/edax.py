@@ -486,14 +486,15 @@ class UP2Reader(_EDAXReaderBase):
             self._patterns._mmap.close()
 
 
-def open_edax(path, pattern_type="processed", **kwargs):
+def open_edax(path, pattern_type="processed", *, up2_path=None, ang_path=None, **kwargs):
     """Open an OH5, ANG+UP2, or UP2 input using the common reader API."""
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix == ".oh5":
         return OH5Reader(path, pattern_type, **kwargs)
     if suffix == ".ang":
-        return UP2Reader(path.with_suffix(".up2"), pattern_type, ang_path=path, **kwargs)
+        companion = Path(up2_path) if up2_path else path.with_suffix(".up2")
+        return UP2Reader(companion, pattern_type, ang_path=path, **kwargs)
     if suffix == ".up2":
-        return UP2Reader(path, pattern_type, **kwargs)
+        return UP2Reader(path, pattern_type, ang_path=ang_path, **kwargs)
     raise ValueError("EDAX input must have .oh5, .ang, or .up2 extension")

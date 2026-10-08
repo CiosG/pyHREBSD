@@ -105,8 +105,9 @@ to `"cpu"` or `"gpu"`.
 Set `input_file` to an EDAX `.oh5` file to read its patterns, orientations,
 pattern quality, PC calibration, and acquisition geometry directly.
 For an `.ang` file, PyHREBSD automatically opens the same-name `.up2` file.
-The `.up2` is not accepted without its companion `.ang`, because the ANG file
-provides the map dimensions, orientations, phases, pattern centre, and geometry.
+Set `edax_up2_file` only when the `.up2` has a different name or location. The
+`.up2` is not accepted without its companion `.ang`; set `edax_ang_file` only
+when that companion has a different name or location.
 EDAX processed mode applies dynamic LMSD correction in memory; unprocessed mode
 keeps the original uint16 detector values and uses the selected raw-pattern
 correction. Hexagonal EDAX maps are exposed as the square-grid subset used by

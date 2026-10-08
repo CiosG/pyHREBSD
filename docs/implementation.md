@@ -59,7 +59,8 @@ The `h5_pc_source` setting is ignored for TFS; TFS has one `MapData` PC source.
 pattern, Euler, phase, IQ, PC-calibration, and geometry fields to the common
 reader API. `UP2Reader` reads the little-endian uint16 pattern records by
 memory mapping the payload. An `.ang` input automatically uses the companion
-`.up2`; an `.up2` must have a companion `.ang`; the ANG file supplies map
+`.up2` (or `edax_up2_file`); an `.up2` must have a companion `.ang` (or
+`edax_ang_file`); the ANG file supplies map
 dimensions, pattern metadata, and geometry.
 
 ANG Euler angles are interpreted as radians, while the numeric ANG metadata
