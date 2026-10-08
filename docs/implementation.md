@@ -45,6 +45,24 @@ is read in radians and reported in degrees. The detector-to-sample
 transformation is reconstructed from `DCStoSCS` and specimen tilt, so
 `detector_geometry="full"` can use the complete reconstructed orientation.
 The `h5_pc_source` setting is ignored for TFS; TFS has one `MapData` PC source.
+
+## EDAX OH5, ANG, and UP2 input
+
+`OH5Reader` reads EDAX/OIM HDF5 pattern stacks directly. It maps the EDAX
+pattern, Euler, phase, IQ, PC-calibration, and geometry fields to the common
+reader API. `UP2Reader` reads the little-endian uint16 pattern records by
+memory mapping the payload. An `.ang` input automatically uses the companion
+`.up2`; an `.up2` may be used alone when map dimensions and geometry are
+available in its header or configuration.
+
+ANG Euler angles are interpreted as radians, while the numeric ANG metadata
+for sample tilt, camera elevation, and pattern centre uses EDAX's degree and
+normalized-detector conventions. The values are transformed to the centered
+square pattern coordinates used by the analysis. Hexagonal maps use the same
+non-interpolating even-row/even-column square subset as the conversion tools.
+EDAX processed patterns use dynamic LMSD correction; unprocessed patterns
+remain uint16 until the selected raw-pattern correction stage.
+
 ## Bruker BCF input
 
 `BCFReader` performs read-only random access to the AidAim SFS container and

@@ -8,10 +8,11 @@ from .analysis import Material, DeformationResult, analyze_pair, fit_deformation
 from .h5oina import H5OINAReader
 from .bcf import BCFReader, BCFError
 from .tfs import TFSReader
+from .edax import OH5Reader, UP2Reader, open_edax
 
 __all__ = [
     "CorrelationResult", "grid_rois", "measure_pattern_shifts", "subpixel_shift",
     "euler_to_matrix", "theoretical_pixel_shift",
     "Material", "DeformationResult", "analyze_pair", "fit_deformation",
-    "H5OINAReader", "BCFReader", "BCFError", "TFSReader",
+    "H5OINAReader", "BCFReader", "BCFError", "TFSReader", "OH5Reader", "UP2Reader", "open_edax",
 ]

@@ -2,7 +2,8 @@
 
 PyHREBSD is a Python research implementation of high-resolution electron
 backscatter diffraction analysis. It reads Thermo Fisher `.tfs.hdf5`, Oxford
-Instruments `.h5oina`, and Bruker ESPRIT `.bcf` files directly and provides two complementary registration methods:
+Instruments `.h5oina`, EDAX `.oh5`, `.ang` + `.up2`, and Bruker ESPRIT
+`.bcf` files directly and provides two complementary registration methods:
 
 - multi-ROI FFT cross-correlation with optional two-pass remapping;
 - whole-pattern inverse-compositional homography fitting.
@@ -58,7 +59,7 @@ driver and CUDA runtime. CPU mode never imports CuPy.
 
 1. Open `run_pyhrebsd.py` and edit the required settings at the top of its
    `CONFIG` block.
-2. Set `input_file` to a `.tfs.hdf5`, `.h5oina`, or `.bcf` file, then set a new `output_dir`,
+2. Set `input_file` to a `.tfs.hdf5`, `.h5oina`, `.oh5`, `.ang`, `.up2`, or `.bcf` file, then set a new `output_dir`,
    `analysis_method`, `pattern_type`, `pc_mode`, `material_name`,
    `reference_map_point`, and `pattern_binning`.
 3. Leave geometry overrides as `None` to read sample tilt, reference
@@ -90,6 +91,25 @@ available and otherwise falls back to per-pattern `dynamic_lmsd`; BCF uses the
 same dynamic fallback because it has no standalone static image. TFS exports
 currently provide processed patterns only. Set `unprocessed_preprocess_device`
 to `"cpu"` or `"gpu"`.
+
+## EDAX OH5, ANG, and UP2 input
+
+Set `input_file` to an EDAX `.oh5` file to read its patterns, orientations,
+pattern quality, PC calibration, and acquisition geometry directly. For an
+`.ang` file, PyHREBSD automatically opens the same-name `.up2` file. A `.up2`
+file can also be selected directly; its v3 header supplies the map dimensions,
+step size, and square/hexagonal grid. For UP2 v1 files, set
+`up2_map_width`, `up2_map_height`, `up2_step_x`, `up2_step_y`, and optionally
+`up2_grid` in `CONFIG`.
+
+The `.ang` file supplies Euler angles, phase IDs, IQ, pattern centre, sample
+tilt, and detector elevation. A standalone `.up2` has pattern data only, so
+set `pattern_center_fallback`, `sample_tilt_degrees`, and
+`camera_elevation_degrees` when those values are unavailable. EDAX processed
+mode applies dynamic LMSD correction in memory; unprocessed mode keeps the
+original uint16 detector values and uses the selected raw-pattern correction.
+Hexagonal EDAX maps are exposed as the square-grid subset used by the supplied
+converters, without interpolating patterns.
 
 ## Beam-shift calibration
 
@@ -128,7 +148,7 @@ file and set:
 ```
 
 The external effective pixel size replaces the scan-X PC drift. The absolute
-PC and the remaining PC gradients still come from the selected H5 source.
+PC and the remaining PC gradients still come from the selected input source.
 
 ## Bruker BCF input
 

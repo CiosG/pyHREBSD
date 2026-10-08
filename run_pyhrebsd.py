@@ -12,6 +12,7 @@ from pyhrebsd.analysis import Material, analyze_pair, prepare_analysis
 from pyhrebsd.bcf import BCFReader, correct_pattern_dynamic_lmsd
 from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
+from pyhrebsd.edax import open_edax
 from pyhrebsd.tfs import TFSReader
 from pyhrebsd.homography import analyze_homography, prepare_homography
 from pyhrebsd.io import read_pattern
@@ -27,18 +28,26 @@ from pyhrebsd.rotations import sample_rotation_vector_mrad
 CONFIG = {
     # Required: select the run and its input/output.
     "run_mode": "analysis",  # "analysis" or "calibration" on a separate strain-free single-crystal scan
-    "input_file": "scan.h5oina",  # .tfs.hdf5, .h5oina, or Bruker .bcf; relative or absolute
+    "input_file": "scan.h5oina",  # .tfs.hdf5, .h5oina, .oh5, .ang, .up2, or .bcf; relative or absolute
     "output_dir": "results_roi_cpu",  # must be new; existing results are not overwritten
 
     # Required for run_mode="analysis".
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
     "pattern_type": "processed",  # H5OINA: processed=stored 8-bit, unprocessed=raw 16-bit; TFS: processed only
     # BCF: processed=dynamic-LMSD 8-bit in memory, unprocessed=raw intensity plus selected correction
-    "h5_pc_source": "ebsd",  # H5OINA only: "ebsd" or "data_processing"; TFS uses MapData PC, BCF acquisition PC
+    "h5_pc_source": "ebsd",  # H5OINA only: "ebsd" or "data_processing"; EDAX uses ANG/OH5 PC, TFS MapData, BCF acquisition PC
     "pc_mode": "h5",  # source PC, fitted "affine", or calibrated "beam_shift_eps"
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
+    # Optional EDAX UP2 v1 metadata; v3 stores these values in its header.
+    "up2_map_width": None,
+    "up2_map_height": None,
+    "up2_step_x": None,
+    "up2_step_y": None,
+    "up2_grid": None,  # None, "square", or "hex"
+    "edax_ang_file": None,  # optional explicit ANG companion for a standalone UP2
+    "edax_preprocess_device": "cpu",  # CPU or GPU for processed EDAX patterns
 
     # Calibration settings; used only for run_mode="calibration".
     "calibration_method": "roi",  # "roi" or whole-pattern "homography"
@@ -121,7 +130,7 @@ def _path(value):
 def _input_path(config):
     value = config.get("input_file", config.get("h5oina_file"))
     if value is None:
-        raise ValueError("set input_file to a .tfs.hdf5, .h5oina, or .bcf dataset")
+        raise ValueError("set input_file to a supported .h5oina, .oh5, .ang, .up2, .tfs.hdf5, or .bcf dataset")
     return _path(value)
 
 
@@ -145,12 +154,29 @@ def _open_reader(path, config):
                 "dynamic_lmsd_clip_percentile",
                 config.get("bcf_lmsd_clip_percentile", 0.75)),
         )
+    if path.suffix.lower() in (".oh5", ".ang", ".up2"):
+        device_id = (config.get("roi_gpu_device_id", 0)
+                     if config.get("analysis_method", "roi") == "roi" else
+                     config.get("homography_gpu_device_id", 0))
+        return open_edax(
+            path, pattern_type,
+            ang_path=config.get("edax_ang_file"),
+            map_width=config.get("up2_map_width"),
+            map_height=config.get("up2_map_height"),
+            step_x=config.get("up2_step_x"), step_y=config.get("up2_step_y"),
+            grid=config.get("up2_grid"),
+            processing_device=config.get("edax_preprocess_device", "cpu"),
+            gpu_device_id=device_id,
+            lmsd_sigma_factor=config.get("dynamic_lmsd_sigma_factor", 0.047),
+            lmsd_radius_factor=config.get("dynamic_lmsd_radius_factor", 0.0375),
+            lmsd_edge_mode=config.get("dynamic_lmsd_edge_mode", "truncate"),
+            lmsd_clip_percentile=config.get("dynamic_lmsd_clip_percentile", 0.75))
     if path.name.lower().endswith(".tfs.hdf5"):
         return TFSReader(path, pattern_type)
     if path.suffix.lower() in (".h5oina", ".h5", ".hdf5"):
         return H5OINAReader(path, config.get("h5_scan_group"), pattern_type,
                             pc_source=config.get("h5_pc_source", "ebsd"))
-    raise ValueError("input_file must have a .h5oina, .h5, .hdf5, .tfs.hdf5, or .bcf extension")
+    raise ValueError("input_file must have a .h5oina, .h5, .hdf5, .oh5, .ang, .up2, .tfs.hdf5, or .bcf extension")
 
 
 def _reference_index(reader, config):
