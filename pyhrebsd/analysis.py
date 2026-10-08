@@ -348,6 +348,7 @@ def analyze_pair(
     gpu_device_id: int = 0,
     subpixel_method: str = "parabolic_1d",
     remapping: bool = False,
+    initial_shifts: list[CorrelationResult] | tuple[CorrelationResult, ...] | None = None,
 ) -> DeformationResult:
     """Correlate a pattern pair, optionally back-rotating for a second pass."""
     ref = np.asarray(reference)
@@ -387,7 +388,9 @@ def analyze_pair(
     elif roi_filter is not None:
         frequency_filter, window = roi_frequency_filter(roi_size, *roi_filter)
         options = {"frequency_filter": frequency_filter, "window": window}
-    if device == "gpu":
+    if initial_shifts is not None:
+        shifts = list(initial_shifts)
+    elif device == "gpu":
         from .correlation_gpu import measure_pattern_shifts_gpu
         shifts = measure_pattern_shifts_gpu(
             ref, target, centers, roi_size, scan_centers=scan_centers,

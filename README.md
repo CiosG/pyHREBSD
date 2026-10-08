@@ -55,6 +55,8 @@ python -m pip install cupy-cuda12x
 Check the current CuPy installation guide for the package appropriate to your
 driver and CUDA runtime. CPU mode never imports CuPy.
 
+For large ROI scans, set `roi_device="gpu"` and use `gpu_batch_size` (default 32) to upload patterns in chunks. Keep `roi_gpu_workers=1` per GPU; lower the batch size if VRAM is limited.
+
 ## First analysis
 
 1. Open `run_pyhrebsd.py` and edit the required settings at the top of its

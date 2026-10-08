@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pyhrebsd.analysis import Material, analyze_pair, prepare_analysis
+from pyhrebsd.analysis import Material, analyze_pair, fit_deformation, prepare_analysis
 from pyhrebsd.bcf import BCFReader, correct_pattern_dynamic_lmsd
 from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
@@ -70,7 +70,8 @@ CONFIG = {
     # Optional ROI-method settings.
     "roi_device": "cpu",  # set "gpu" after installing matching CuPy
     "roi_gpu_device_id": 0,
-    "roi_gpu_workers": 4,
+    "roi_gpu_workers": 1,  # one process per GPU; use gpu_batch_size for throughput
+    "gpu_batch_size": 32,  # ROI GPU patterns uploaded per chunk; lower if VRAM is limited
     "roi_layout": "annular",  # center plus one circular ring; "grid" uses a square layout
     "roi_size": None,  # explicit pixel override; None uses roi_size_percent
     "roi_size_percent": 25.0,  # ROI width as a percentage of pattern width
@@ -359,7 +360,7 @@ def _save_result(result, output_dir, name, source, material):
 
 
 def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, config,
-             prepared=None):
+             prepared=None, initial_shifts=None):
     method = config.get("analysis_method", "roi")
     if method == "homography":
         return analyze_homography(
@@ -391,6 +392,7 @@ def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, conf
         gpu_device_id=config.get("roi_gpu_device_id", 0),
         subpixel_method="quadratic_2d",
         remapping=config.get("roi_remapping", False),
+        initial_shifts=initial_shifts,
     )
 
 
@@ -533,6 +535,96 @@ def _analyze_h5_index(index):
         return index, None, None, str(exc)
 
 
+
+def _gpu_batch_scan_centers(reference_shape, centers, reference_pc, scan_pc):
+    """Return corrected ROI centers and the mask valid for one scan."""
+    size = reference_shape[0]
+    ratio = reference_pc[2] / scan_pc[2]
+    translation = np.array([reference_pc[0] - scan_pc[0],
+                            scan_pc[1] - reference_pc[1],
+                            scan_pc[2] - reference_pc[2]])
+    r0 = np.column_stack((reference_pc[0] - (centers[:, 0] + 1) / size,
+                          1 - reference_pc[1] - (centers[:, 1] + 1) / size,
+                          np.full(len(centers), -reference_pc[2])))
+    shifted = -np.array([reference_pc[0], 1 - reference_pc[1], -reference_pc[2]]) + translation + r0 / ratio
+    scan_centers = -shifted[:, :2] * size - 1
+    valid = np.array([_roi_in_bounds(x, y, centers, size) for x, y in scan_centers])
+    return scan_centers, valid
+
+
+def _roi_in_bounds(x, y, centers, size):
+    # The caller applies the same ROI size to every point in a batch.
+    roi_size = int(_H5_WORKER["config"]["roi_size"])
+    try:
+        from pyhrebsd.correlation import _roi_slice
+        _roi_slice(x, y, roi_size, (size, size))
+        return True
+    except ValueError:
+        return False
+
+
+def _analyze_h5_batches(indices, batch_size):
+    """Yield scan results while uploading each GPU ROI batch only once."""
+    context = _H5_WORKER
+    reader = context["reader"]
+    config = context["config"]
+    reference = context["reference"]
+    reference_pc = context["reference_pc"]
+    prepared = context["prepared"]
+    from pyhrebsd.correlation_gpu import measure_pattern_shifts_gpu_batch
+    centers = np.asarray(prepared.centers)
+    for start in range(0, len(indices), batch_size):
+        chunk = indices[start:start + batch_size]
+        scans, pcs = [], []
+        errors = {}
+        for index in chunk:
+            try:
+                scan = _h5_pattern(reader, index, config, context["static_background"])
+                scan_pc = _h5_pc(reader, index, config, context["pc_plane"])
+                if scan_pc is None:
+                    raise ValueError("pattern center missing; set pattern_center_fallback")
+                scans.append(scan)
+                pcs.append(scan_pc)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                errors[index] = str(exc)
+        if not scans:
+            for index in chunk:
+                yield index, None, None, errors.get(index, "pattern could not be loaded")
+            continue
+        valid = np.ones(len(centers), dtype=bool)
+        target_centers = []
+        for scan_pc in pcs:
+            target, current = _gpu_batch_scan_centers(reference.shape, centers,
+                                                       reference_pc, scan_pc)
+            target_centers.append(target)
+            valid &= current
+        if valid.sum() < 4:
+            for index in chunk:
+                yield _analyze_h5_index(index)
+            continue
+        batch_shifts = measure_pattern_shifts_gpu_batch(
+            reference, np.stack(scans), centers[valid], config["roi_size"],
+            scan_centers=np.stack(target_centers)[:, valid],
+            frequency_filter=prepared.frequency_filter, window=prepared.window,
+            prepared_reference=prepared.reference,
+            gpu_device_id=config.get("roi_gpu_device_id", 0),
+            subpixel_method="quadratic_2d")
+        scan_number = 0
+        for index in chunk:
+            if index in errors:
+                yield index, None, None, errors[index]
+                continue
+            scan, scan_pc = scans[scan_number], pcs[scan_number]
+            shifts = batch_shifts[scan_number]
+            scan_number += 1
+            try:
+                result = _analyze(reference, scan, reference_pc, scan_pc,
+                                  context["orientation"], context["material"],
+                                  config, prepared, initial_shifts=shifts)
+                yield index, result, scan_pc, None
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                yield index, None, None, str(exc)
+
 def run(config=CONFIG):
     run_mode = config.get("run_mode", "analysis")
     if run_mode == "calibration":
@@ -653,7 +745,11 @@ def run(config=CONFIG):
             if workers == 1:
                 global _H5_WORKER
                 _H5_WORKER = _make_h5_context(reader, reference_index, material, config, pc_plane)
-                results = map(_analyze_h5_index, indices)
+                if (method == "roi" and config.get("roi_device", "cpu") == "gpu"
+                        and int(config.get("gpu_batch_size", 1)) > 1):
+                    results = _analyze_h5_batches(indices, int(config["gpu_batch_size"]))
+                else:
+                    results = map(_analyze_h5_index, indices)
                 executor = None
             else:
                 executor = ProcessPoolExecutor(

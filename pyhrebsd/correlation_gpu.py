@@ -86,7 +86,8 @@ def measure_pattern_shifts_gpu(reference, scan, centers, roi_size, *,
                                subpixel_method="parabolic_1d"):
     """Return CPU-compatible ROI measurements from batched CUDA FFTs."""
     ref = np.asarray(reference, dtype=np.float64)
-    target = np.asarray(scan, dtype=np.float64)
+    cp = _cupy()
+    target = scan if isinstance(scan, cp.ndarray) else np.asarray(scan, dtype=np.float64)
     points = np.asarray(centers, dtype=np.float64)
     if ref.ndim != 2 or ref.shape != target.shape:
         raise ValueError("reference and scan must be 2-D images of equal shape")
@@ -116,7 +117,6 @@ def measure_pattern_shifts_gpu(reference, scan, centers, roi_size, *,
         target_origins.append((scan_region[0].start, scan_region[1].start))
     if not origins:
         return []
-    cp = _cupy()
     cp.cuda.Device(gpu_device_id).use()
     prepared = (prepared_reference if prepared_reference is not None else
                 prepare_reference_gpu(ref, points, roi_size, frequency_filter,
@@ -198,3 +198,43 @@ def measure_pattern_shifts_gpu(reference, scan, centers, roi_size, *,
     measured = cp.asnumpy(cp.stack((dx, dy, coefficient, confidence), axis=1))
     return [CorrelationResult(float(x), float(y), *map(float, values))
             for (x, y), values in zip(points, measured)]
+
+def measure_pattern_shifts_gpu_batch(
+    reference, scans, centers, roi_size, *, frequency_filter=None, window=None,
+    scan_centers=None, prepared_reference=None, gpu_device_id=0,
+    subpixel_method="parabolic_1d",
+):
+    """Measure many scan patterns with one CPU-to-GPU upload.
+
+    ``scans`` has shape ``(batch, height, width)``.  The reference FFT cache
+    stays resident on the GPU and each scan is processed there before only
+    its compact ROI measurements are copied back.  ``scan_centers`` may be a
+    common ``(roi, 2)`` array or one ``(batch, roi, 2)`` array.
+    """
+    cp = _cupy()
+    values = np.asarray(scans)
+    if values.ndim != 3:
+        raise ValueError("scans must have shape (batch, height, width)")
+    if values.shape[0] == 0:
+        return []
+    points = np.asarray(centers, dtype=np.float64)
+    if scan_centers is None:
+        target_points = points
+    else:
+        target_points = np.asarray(scan_centers, dtype=np.float64)
+        if target_points.ndim == 2 and target_points.shape != points.shape:
+            raise ValueError("scan_centers must match centers")
+        if target_points.ndim == 3 and target_points.shape != (values.shape[0], *points.shape):
+            raise ValueError("batched scan_centers must have shape (batch, roi, 2)")
+    # Upload the complete chunk once.  Individual calls below operate on GPU
+    # views, so no additional host transfer is made for each pattern.
+    scans_gpu = cp.asarray(values, dtype=cp.float64)
+    results = []
+    for index in range(values.shape[0]):
+        current_centers = target_points if target_points.ndim == 2 else target_points[index]
+        results.append(measure_pattern_shifts_gpu(
+            reference, scans_gpu[index], points, roi_size,
+            frequency_filter=frequency_filter, window=window,
+            scan_centers=current_centers, prepared_reference=prepared_reference,
+            gpu_device_id=gpu_device_id, subpixel_method=subpixel_method))
+    return results
