@@ -14,7 +14,7 @@ from pyhrebsd.correlation import roi_size_from_percent
 from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.edax import open_edax
 from pyhrebsd.tfs import TFSReader
-from pyhrebsd.homography import analyze_homography, prepare_homography
+from pyhrebsd.homography import _ray_matrix, analyze_homography, prepare_homography
 from pyhrebsd.io import read_pattern
 from pyhrebsd.pc_calibration import (fit_pc_plane, measure_effective_pixel_size,
                                    measure_effective_pixel_size_homography,
@@ -85,6 +85,7 @@ CONFIG = {
     "homography_device": "cpu",  # set "gpu" after installing matching CuPy
     "homography_gpu_device_id": 0,
     "homography_gpu_workers": 4,
+    "homography_gpu_batch_size": 4,  # concurrent CUDA streams per batch
     "homography_margin_fraction": 0.08,
     "homography_max_iterations": 250,  # upper limit; fitting stops on convergence
 
@@ -360,7 +361,7 @@ def _save_result(result, output_dir, name, source, material):
 
 
 def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, config,
-             prepared=None, initial_shifts=None):
+             prepared=None, initial_shifts=None, initial_homography=None):
     method = config.get("analysis_method", "roi")
     if method == "homography":
         return analyze_homography(
@@ -372,7 +373,8 @@ def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, conf
             max_iterations=config.get("homography_max_iterations", 40),
             phosphor_to_sample=config.get("phosphor_to_sample"),
             device=config.get("homography_device", "cpu"),
-            gpu_device_id=config.get("homography_gpu_device_id", 0))
+            gpu_device_id=config.get("homography_gpu_device_id", 0),
+            registration=initial_homography)
     if method != "roi":
         raise ValueError("analysis_method must be 'roi' or 'homography'")
     return analyze_pair(
@@ -625,6 +627,60 @@ def _analyze_h5_batches(indices, batch_size):
             except (ValueError, np.linalg.LinAlgError) as exc:
                 yield index, None, None, str(exc)
 
+
+def _homography_initial(reference_shape, reference_pc, scan_pc, orientation, config):
+    size = reference_shape[0]
+    alpha = np.pi / 2 - np.deg2rad(config["sample_tilt_degrees"]) + np.deg2rad(config["camera_elevation_degrees"])
+    qps = (config.get("phosphor_to_sample") if config.get("phosphor_to_sample") is not None
+           else np.array([[0, -np.cos(alpha), -np.sin(alpha)],
+                          [-1, 0, 0], [0, np.sin(alpha), -np.cos(alpha)]]))
+    qpc = np.asarray(orientation) @ qps
+    return np.linalg.inv(_ray_matrix(scan_pc, size, qpc)) @ _ray_matrix(reference_pc, size, qpc)
+
+
+def _analyze_homography_batches(indices, batch_size):
+    context = _H5_WORKER
+    reader, config = context["reader"], context["config"]
+    reference, reference_pc = context["reference"], context["reference_pc"]
+    prepared = context["prepared"]
+    from pyhrebsd.homography_gpu import register_gpu_homography_batch
+    for start in range(0, len(indices), batch_size):
+        chunk = indices[start:start + batch_size]
+        scans, pcs, errors = [], [], {}
+        for index in chunk:
+            try:
+                scans.append(_h5_pattern(reader, index, config, context["static_background"]))
+                pc = _h5_pc(reader, index, config, context["pc_plane"])
+                if pc is None:
+                    raise ValueError("pattern center missing; set pattern_center_fallback")
+                pcs.append(pc)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                errors[index] = str(exc)
+        if scans:
+            initials = [_homography_initial(reference.shape, reference_pc, pc,
+                                            context["orientation"], config) for pc in pcs]
+            registrations = register_gpu_homography_batch(
+                prepared, np.stack(scans), initials,
+                max_iterations=config.get("homography_max_iterations", 40),
+                max_workers=config.get("homography_gpu_workers", 4),
+                gpu_device_id=config.get("homography_gpu_device_id", 0))
+        else:
+            registrations, pcs = [], []
+        number = 0
+        for index in chunk:
+            if index in errors:
+                yield index, None, None, errors[index]
+                continue
+            try:
+                result = _analyze(reference, scans[number], reference_pc, pcs[number],
+                                  context["orientation"], context["material"], config,
+                                  prepared, initial_homography=registrations[number])
+                yield index, result, pcs[number], None
+                number += 1
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                yield index, None, None, str(exc)
+                number += 1
+
 def run(config=CONFIG):
     run_mode = config.get("run_mode", "analysis")
     if run_mode == "calibration":
@@ -719,7 +775,10 @@ def run(config=CONFIG):
                 suffix = "..." if len(missing) > 5 else ""
                 raise ValueError(f"scan indices without stored patterns: {preview}{suffix}")
             method = config.get("analysis_method", "roi")
-            if method == "homography" and config.get("homography_device", "cpu") == "gpu":
+            if (method == "homography" and config.get("homography_device", "cpu") == "gpu"
+                    and int(config.get("homography_gpu_batch_size", 1)) > 1):
+                workers = 1
+            elif method == "homography" and config.get("homography_device", "cpu") == "gpu":
                 workers = int(config.get("homography_gpu_workers", 1))
             elif method == "roi" and config.get("roi_device", "cpu") == "gpu":
                 workers = int(config.get("roi_gpu_workers", 1))
@@ -758,6 +817,10 @@ def run(config=CONFIG):
                 if (method == "roi" and config.get("roi_device", "cpu") == "gpu"
                         and int(config.get("gpu_batch_size", 1)) > 1):
                     results = _analyze_h5_batches(indices, int(config["gpu_batch_size"]))
+                elif (method == "homography" and config.get("homography_device", "cpu") == "gpu"
+                      and int(config.get("homography_gpu_batch_size", 1)) > 1):
+                    results = _analyze_homography_batches(
+                        indices, int(config["homography_gpu_batch_size"]))
                 else:
                     results = map(_analyze_h5_index, indices)
                 executor = None

@@ -94,15 +94,17 @@ def _sample_normalized(target, h, plan, cp, map_coordinates):
 
 
 def register_gpu_homography(plan, scan, initial=None, *, max_iterations=40,
-                            tolerance=1e-5, background_sigma=None):
+                            tolerance=1e-5, background_sigma=None, stream=None):
     """Refine the eight projective parameters on GPU using float64 IC-GN."""
-    image = np.asarray(scan)
+    cp, gaussian_filter, map_coordinates = _cupy()
+    image = scan if isinstance(scan, cp.ndarray) else np.asarray(scan)
     if image.shape != plan.reference.shape:
         raise ValueError("scan and reference patterns must have equal shape")
     if max_iterations < 1 or tolerance <= 0:
         raise ValueError("invalid homography iteration settings")
-    cp, gaussian_filter, map_coordinates = _cupy()
     cp.cuda.Device(plan.gpu_device_id).use()
+    if stream is not None:
+        stream.use()
     sigma = background_sigma or max(5.0, image.shape[0]/25.0)
     target = _preprocess_gpu(image, sigma, cp, gaussian_filter)
     s_cpu = np.array([[1/plan.scale, 0, -plan.center/plan.scale],
@@ -143,3 +145,36 @@ def register_gpu_homography(plan, scan, initial=None, *, max_iterations=40,
     rms = float(cp.sqrt(cp.sum(residual**2)/count).get())
     h_pixel = cp.asarray(np.linalg.inv(s_cpu)) @ h @ cp.asarray(s_cpu)
     return _normalize_h(cp.asnumpy(h_pixel)), rms, iteration, converged
+
+
+def register_gpu_homography_batch(plan, scans, initials=None, *, max_iterations=40,
+                                   tolerance=1e-5, background_sigma=None,
+                                   gpu_device_id=None, max_workers=4):
+    """Register a chunk of patterns concurrently on independent CUDA streams."""
+    from concurrent.futures import ThreadPoolExecutor
+    cp, _, _ = _cupy()
+    device_id = plan.gpu_device_id if gpu_device_id is None else int(gpu_device_id)
+    values = np.asarray(scans)
+    if values.ndim != 3 or values.shape[0] == 0:
+        if values.ndim != 3:
+            raise ValueError("scans must have shape (batch, height, width)")
+        return []
+    if values.shape[1:] != plan.reference.shape:
+        raise ValueError("scan patterns do not match the homography plan")
+    if initials is None:
+        initial_list = [None] * values.shape[0]
+    else:
+        initial_list = list(initials)
+        if len(initial_list) != values.shape[0]:
+            raise ValueError("initials must contain one homography per scan")
+    cp.cuda.Device(device_id).use()
+    scans_gpu = cp.asarray(values, dtype=cp.float64)
+    streams = [cp.cuda.Stream(non_blocking=True) for _ in range(min(max_workers, values.shape[0]))]
+    def one(index):
+        stream = streams[index % len(streams)]
+        return register_gpu_homography(
+            plan, scans_gpu[index], initial_list[index], max_iterations=max_iterations,
+            tolerance=tolerance, background_sigma=background_sigma, stream=stream)
+    with ThreadPoolExecutor(max_workers=len(streams)) as executor:
+        futures = [executor.submit(one, index) for index in range(values.shape[0])]
+        return [future.result() for future in futures]

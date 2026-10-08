@@ -231,7 +231,7 @@ def analyze_homography(reference, scan, reference_pc, scan_pc, orientation,
                        sample_tilt, camera_elevation, material, *, prepared=None,
                        margin_fraction=0.08, max_iterations=40,
                        tolerance=1e-5, phosphor_to_sample=None, device="cpu",
-                       gpu_device_id=0):
+                       gpu_device_id=0, registration=None):
     plan = prepared or prepare_homography(reference,
                                           margin_fraction=margin_fraction,
                                           device=device, gpu_device_id=gpu_device_id)
@@ -247,8 +247,10 @@ def analyze_homography(reference, scan, reference_pc, scan_pc, orientation,
     size = np.asarray(reference).shape[0]
     initial = np.linalg.inv(_ray_matrix(scan_pc, size, qpc)) @ _ray_matrix(
         reference_pc, size, qpc)
-    h, rms, iterations, converged = register_homography(
+    registration = (register_homography(
         plan, scan, initial, max_iterations=max_iterations, tolerance=tolerance)
+        if registration is None else registration)
+    h, rms, iterations, converged = registration
     f, strain, stress, g = deformation_from_homography(
         h, reference_pc, scan_pc, g, sample_tilt, camera_elevation,
         material, size, phosphor_to_sample)
