@@ -135,9 +135,17 @@ def _fit_shift_line(reference, pattern_reader, reference_index, points,
 
 
 def _map_step_um(reader, axis: str) -> float:
-    if reader._header is None or f"{axis} Step" not in reader._header:
-        raise ValueError(f"beam-shift calibration needs dataset {axis} Step metadata")
-    values = np.asarray(reader._header[f"{axis} Step"][()], dtype=float).reshape(-1)
+    """Return the scan step for H5OINA, TFS, OH5, or UP2/ANG readers."""
+    attr = f"_{axis.lower()}_step"
+    value = getattr(reader, attr, None)
+    if value is None and hasattr(reader._header, "step_" + axis.lower()):
+        value = getattr(reader._header, "step_" + axis.lower())
+    if value is None and reader._header is not None:
+        name = f"{axis} Step"
+        if name in reader._header:
+            raw = reader._header[name]
+            value = raw[()] if hasattr(raw, "__getitem__") else raw
+    values = np.asarray(value, dtype=float).reshape(-1) if value is not None else np.array([])
     if len(values) != 1 or not np.isfinite(values[0]) or values[0] <= 0:
         raise ValueError(f"beam-shift calibration needs a positive {axis} Step")
     return float(values[0])
@@ -438,11 +446,8 @@ def fit_beam_shift_pc_plane(reader, pattern_reader,
     pc = baseline.at(reference_index, reader.x_cells)
     center = np.array([[pc[0] * size - 1, (1 - pc[1]) * size - 1]])
     column0, row0 = reference_index % reader.x_cells, reference_index // reader.x_cells
-    header = reader._header
-    x_step = float(np.asarray(header["X Step"][()]).reshape(-1)[0])
-    y_step = float(np.asarray(header["Y Step"][()]).reshape(-1)[0])
-    if not np.all(np.isfinite((x_step, y_step))) or x_step <= 0 or y_step <= 0:
-        raise ValueError("beam-shift calibration needs positive X/Y step sizes")
+    x_step = _map_step_um(reader, "X")
+    y_step = _map_step_um(reader, "Y")
 
     def line(anchor, cells, step_um):
         direction = 1 if cells - 1 - anchor >= anchor else -1
