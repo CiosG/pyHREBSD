@@ -98,8 +98,6 @@ CuPy/CUDA implementation. CPU and GPU paths implement the same operations.
 BCF does not normally contain a separate static-background image. When
 `static_lmsd` is requested for raw BCF data, the runner automatically selects
 the per-pattern dynamic LMSD correction.
-The BCF reader is implemented directly in PyHREBSD and does not require an
-intermediate conversion or Bruker software library.
 
 ### Unprocessed-pattern background correction
 

@@ -159,7 +159,7 @@ PC and the remaining PC gradients still come from the selected input source.
 
 Set `input_file` to the `.bcf` file. With `pattern_type="processed"`, PyHREBSD
 reads each raw pattern lazily and applies dynamic-background LMSD correction in
-memory; no intermediate H5OINA file is written. Select CPU or CUDA for this
+memory. Select CPU or CUDA for this
 step with `bcf_preprocess_device`. With `pattern_type="unprocessed"`, the raw
 8- or 16-bit pattern is passed to the general raw-pattern correction settings.
 If `static_lmsd` is selected but no static-background image exists, PyHREBSD
@@ -171,9 +171,6 @@ tilt, and scan rotation. `h5_pc_source` is ignored for BCF. Missing map slots
 are skipped automatically rather than replaced with zero-valued patterns.
 Set `reference_map_point=None` to use the first stored pattern, which is useful
 when a sparse BCF acquisition starts away from map coordinate `(0, 0)`.
-The reader is implemented directly in PyHREBSD and does not require a format
-converter or Bruker software library.
-
 For a direct two-image ROI shift measurement:
 
 ```powershell
