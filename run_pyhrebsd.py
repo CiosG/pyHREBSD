@@ -40,13 +40,7 @@ CONFIG = {
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
-    # Optional EDAX UP2 v1 metadata; v3 stores these values in its header.
-    "up2_map_width": None,
-    "up2_map_height": None,
-    "up2_step_x": None,
-    "up2_step_y": None,
-    "up2_grid": None,  # None, "square", or "hex"
-    "edax_ang_file": None,  # optional explicit ANG companion for a standalone UP2
+    "edax_ang_file": None,  # optional explicit ANG companion path for UP2
     "edax_preprocess_device": "cpu",  # CPU or GPU for processed EDAX patterns
 
     # Calibration settings; used only for run_mode="calibration".
@@ -161,10 +155,6 @@ def _open_reader(path, config):
         return open_edax(
             path, pattern_type,
             ang_path=config.get("edax_ang_file"),
-            map_width=config.get("up2_map_width"),
-            map_height=config.get("up2_map_height"),
-            step_x=config.get("up2_step_x"), step_y=config.get("up2_step_y"),
-            grid=config.get("up2_grid"),
             processing_device=config.get("edax_preprocess_device", "cpu"),
             gpu_device_id=device_id,
             lmsd_sigma_factor=config.get("dynamic_lmsd_sigma_factor", 0.047),

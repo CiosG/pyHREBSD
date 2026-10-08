@@ -95,21 +95,14 @@ to `"cpu"` or `"gpu"`.
 ## EDAX OH5, ANG, and UP2 input
 
 Set `input_file` to an EDAX `.oh5` file to read its patterns, orientations,
-pattern quality, PC calibration, and acquisition geometry directly. For an
-`.ang` file, PyHREBSD automatically opens the same-name `.up2` file. A `.up2`
-file can also be selected directly; its v3 header supplies the map dimensions,
-step size, and square/hexagonal grid. UP2 v1 gets these values from the
-companion ANG header. For a standalone UP2 v1, set
-`up2_map_width`, `up2_map_height`, `up2_step_x`, `up2_step_y`, and optionally
-`up2_grid` in `CONFIG`.
-The `.ang` file supplies Euler angles, phase IDs, IQ, pattern centre, sample
-tilt, and detector elevation. A standalone `.up2` has pattern data only, so
-set `pattern_center_fallback`, `sample_tilt_degrees`, and
-`camera_elevation_degrees` when those values are unavailable. EDAX processed
-mode applies dynamic LMSD correction in memory; unprocessed mode keeps the
-original uint16 detector values and uses the selected raw-pattern correction.
-Hexagonal EDAX maps are exposed as the square-grid subset used by the supplied
-converters, without interpolating patterns.
+pattern quality, PC calibration, and acquisition geometry directly.
+For an `.ang` file, PyHREBSD automatically opens the same-name `.up2` file.
+The `.up2` is not accepted without its companion `.ang`, because the ANG file
+provides the map dimensions, orientations, phases, pattern centre, and geometry.
+EDAX processed mode applies dynamic LMSD correction in memory; unprocessed mode
+keeps the original uint16 detector values and uses the selected raw-pattern
+correction. Hexagonal EDAX maps are exposed as the square-grid subset used by
+the supplied converters, without interpolating patterns.
 
 ## Beam-shift calibration
 

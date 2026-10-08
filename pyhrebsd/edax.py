@@ -376,7 +376,7 @@ def _read_up2_header(path, map_width=None, map_height=None, step_x=None,
     else:
         is_hex = None if grid is None else grid == "hex"
     if map_width is None or map_height is None:
-        raise ValueError("UP2 v1 has no map size; provide up2_map_width and up2_map_height")
+        raise ValueError("UP2 v1 has no map size; its companion ANG file must provide NCOLS_ODD and NROWS")
     expected = map_width * map_height - (map_height // 2 if is_hex else 0)
     if count != expected:
         raise ValueError(f"UP2 contains {count} patterns, expected {expected} from map dimensions")
@@ -408,6 +408,8 @@ class UP2Reader(_EDAXReaderBase):
         candidate = Path(ang_path) if ang_path else self.path.with_suffix(".ang")
         self._ang_path = candidate if candidate.exists() else None
         self._ang = _parse_ang(self._ang_path) if self._ang_path else None
+        if self._ang is None:
+            raise ValueError("UP2 analysis requires a companion ANG file with map and indexing metadata")
         # UP2 v1 stores only pattern dimensions; ANG carries the map metadata.
         if self._ang is not None:
             map_width = map_width if map_width is not None else _ang_value(self._ang, "NCOLS_ODD", cast=int)
@@ -426,7 +428,7 @@ class UP2Reader(_EDAXReaderBase):
         self._patterns = np.memmap(self.path, dtype="<u2", mode="r",
                                    offset=self._header.offset,
                                    shape=(self._header.count, self.height, self.width))
-        if self._ang is not None and len(self._ang.data) != self._header.count:
+        if len(self._ang.data) != self._header.count:
             raise ValueError("ANG and UP2 contain different numbers of patterns")
         self._load_ang_metadata()
 
