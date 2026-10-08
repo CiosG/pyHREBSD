@@ -35,8 +35,8 @@ CONFIG = {
     "analysis_method": "roi",  # "roi" or whole-pattern "homography"
     "pattern_type": "processed",  # H5OINA: processed=stored 8-bit, unprocessed=raw 16-bit; TFS: processed only
     # BCF: processed=dynamic-LMSD 8-bit in memory, unprocessed=raw intensity plus selected correction
-    "h5_pc_source": "ebsd",  # H5OINA only: "ebsd" or "data_processing"; EDAX uses ANG/OH5 PC, TFS MapData, BCF acquisition PC
-    "pc_mode": "h5",  # source PC, fitted "affine", or calibrated "beam_shift_eps"
+    "h5_pc_source": "ebsd",  # H5OINA: "ebsd" or "data_processing" (including MapSweeper PC); other readers select their source
+    "pc_mode": "array",  # "single" repeats one PC; "array" uses per-point/source PC
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
@@ -51,7 +51,7 @@ CONFIG = {
     # Optional dataset, material, and PC overrides.
     "material_database": "pyhrebsd/materials.h5",
     "pattern_center_fallback": (0.45, 0.53, 0.65),  # (PCX, PCY, DD), normalized by pattern width
-    "beam_shift_effective_pixel_size_um": None,  # required only for pc_mode="beam_shift_eps"
+    "beam_shift_effective_pixel_size_um": None,  # used by pc_mode="beam_shift_eps" to build an array from map steps
     "beam_shift_detector_x_sign": "auto",  # infer source PC slope; or copy -1/+1 from calibration
 
     # Optional geometry overrides; None reads the value from the selected input source.
@@ -416,8 +416,11 @@ _H5_WORKER = None
 def _h5_pc(reader, index, config, pc_plane):
     if pc_plane is not None:
         pc = pc_plane.at(index, reader.x_cells)
+    elif config.get("pc_mode", "array") == "single":
+        pc = config.get("_single_pc") or reader.pattern_center(index)
     else:
-        pc = reader.pattern_center(index) or config.get("pattern_center_fallback")
+        pc = reader.pattern_center(index)
+    pc = pc or config.get("pattern_center_fallback")
     return (_pc_for_analysis(
         pc, min(reader.height, reader.width), int(config.get("pattern_binning", 1)),
         config.get("h5_pc_calibration_pattern_side")) if pc is not None else None)
@@ -590,10 +593,13 @@ def run(config=CONFIG):
             else:
                 raise ValueError("detector_geometry must be 'full' or 'elevation'")
             pc_mode = config.get("pc_mode", "h5")
-            if pc_mode not in ("h5", "affine", "beam_shift_eps"):
-                raise ValueError("pc_mode must be 'h5', 'affine', or 'beam_shift_eps'")
+            if pc_mode not in ("single", "array", "h5", "affine", "beam_shift_eps"):
+                raise ValueError("pc_mode must be 'single', 'array', 'affine', or 'beam_shift_eps'")
             print(f"PC source: {reader.pc_source_path}; mode: {pc_mode}")
             reference_index = _reference_index(reader, config)
+            if pc_mode == "single":
+                config = dict(config)
+                config["_single_pc"] = reader.pattern_center(reference_index)
             if pc_mode == "affine":
                 pc_plane = fit_pc_plane(reader)
             elif pc_mode == "beam_shift_eps":

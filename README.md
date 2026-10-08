@@ -83,6 +83,14 @@ Elastic constants, their verification status, and literature references are
 stored in `pyhrebsd/materials.h5`; see
 [the material database notes](docs/materials.md).
 
+`pc_mode="array"` is the default. It uses per-point PC values when the
+input format stores them. H5OINA can select the ordinary `EBSD/Data` PC or
+`Data Processing/Data`, including PC values written by MapSweeper. TFS and BCF
+provide their own per-point PC data. OH5 and ANG contain one global PC; their
+array is therefore constant unless `pc_mode="beam_shift_eps"` supplies a
+calibrated linear PC change from the map steps. Use `pc_mode="single"` to
+force one reference PC for every pattern.
+
 For TFS input, `pattern_type="processed"` is selected automatically; TFS exports
 contain processed patterns, map PC values, Euler angles, phases, and sample geometry.
 

@@ -25,6 +25,13 @@ a scan-position plane to the selected values. External beam-shift calibration
 replaces only the calibrated PC gradient; it does not independently determine
 the absolute PC.
 
+`pc_mode="array"` uses the reader's per-point PC values. H5OINA can read either
+`EBSD/Data` or `Data Processing/Data`; the latter may contain PC values from
+MapSweeper. TFS and BCF provide per-point values through their native map
+data. OH5 and ANG provide one global PC, so their array is constant unless
+beam-shift EPS calibration supplies a linear map-step correction.
+`pc_mode="single"` explicitly repeats the reference PC for every pattern.
+
 When no explicit overrides are supplied, sample tilt and the full Oxford
 detector orientation are read from the H5OINA header. Euler orientations use
 the Bunge convention implemented in `pyhrebsd.geometry`.
