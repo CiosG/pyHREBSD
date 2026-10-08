@@ -83,7 +83,7 @@ class H5OINATests(unittest.TestCase):
                 "material_database": "pyhrebsd/materials.h5",
                 "material_name": "copper", "reference_euler_degrees": None,
                 "sample_tilt_degrees": 70, "camera_elevation_degrees": 10,
-                "detector_geometry": "elevation", "pc_mode": "h5",
+                "detector_geometry": "elevation", "pc_mode": "array",
                 "pattern_binning": 1, "roi_size": 24, "roi_count": 49,
                 "roi_layout": "grid", "roi_filter": None,
                 "outlier_standard_deviation": 2, "workers": 1,
@@ -172,7 +172,7 @@ class H5OINATests(unittest.TestCase):
                     data.create_dataset(name, data=np.full(2, value))
             config = {
                 "input_mode": "h5oina", "h5oina_file": str(path),
-                "h5_pc_source": "data_processing", "pc_mode": "h5",
+                "h5_pc_source": "data_processing", "pc_mode": "array",
                 "h5_scan_group": None, "h5_pattern_type": "processed",
                 "reference_map_point": (0, 0), "scan_indices": [1],
                 "output_dir": str(directory / "results"),
@@ -187,7 +187,7 @@ class H5OINATests(unittest.TestCase):
             with (directory / "results" / "scan_results.csv").open(newline="") as stream:
                 row = next(csv.DictReader(stream))
             self.assertEqual(row["pc_source"], "data_processing")
-            self.assertEqual(row["pc_mode"], "h5")
+            self.assertEqual(row["pc_mode"], "array")
             self.assertAlmostEqual(float(row["pattern_center_x"]), 0.55)
             self.assertAlmostEqual(float(row["pattern_center_y"]), 0.30)
             self.assertAlmostEqual(float(row["pattern_center_z"]), 0.65)

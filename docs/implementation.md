@@ -20,7 +20,7 @@ intensities without changing their bits.
 
 Per-point pattern centers can be selected from either `/<scan>/EBSD/Data` or
 `/<scan>/Data Processing/Data`. The selected source is recorded in the output.
-`pc_mode="h5"` uses every stored PC directly. `pc_mode="affine"` robustly fits
+`pc_mode="array"` uses every stored PC directly. `pc_mode="affine"` robustly fits
 a scan-position plane to the selected values. External beam-shift calibration
 replaces only the calibrated PC gradient; it does not independently determine
 the absolute PC.

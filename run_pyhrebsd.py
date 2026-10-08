@@ -592,8 +592,8 @@ def run(config=CONFIG):
                 config["phosphor_to_sample"] = None
             else:
                 raise ValueError("detector_geometry must be 'full' or 'elevation'")
-            pc_mode = config.get("pc_mode", "h5")
-            if pc_mode not in ("single", "array", "h5", "affine", "beam_shift_eps"):
+            pc_mode = config.get("pc_mode", "array")
+            if pc_mode not in ("single", "array", "affine", "beam_shift_eps"):
                 raise ValueError("pc_mode must be 'single', 'array', 'affine', or 'beam_shift_eps'")
             print(f"PC source: {reader.pc_source_path}; mode: {pc_mode}")
             reference_index = _reference_index(reader, config)
