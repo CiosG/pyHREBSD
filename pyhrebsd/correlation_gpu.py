@@ -246,3 +246,35 @@ def measure_pattern_shifts_gpu_batch(
     return [[CorrelationResult(float(x), float(y), *map(float, row))
              for (x, y), row in zip(points, measured[index])]
             for index in range(values.shape[0])]
+
+
+def recommend_gpu_batch_size(pattern_shape, roi_size, roi_count, requested=32,
+                             gpu_device_id=0, safety_fraction=0.65,
+                             max_auto_batch=64):
+    """Choose a conservative ROI batch size from the current CUDA free memory.
+
+    The estimate accounts for the uploaded float64 pattern stack and reserves
+    memory for the reference FFT cache, ROI work arrays, and CUDA allocator.
+    It is deliberately conservative; the returned value is always at least 1.
+    """
+    cp = _cupy()
+    if len(pattern_shape) != 2 or min(pattern_shape) <= 0:
+        raise ValueError("pattern_shape must be (height, width)")
+    if roi_size < 5 or roi_count < 1 or not 0 < safety_fraction < 1:
+        raise ValueError("invalid GPU batch sizing parameters")
+    cp.cuda.Device(gpu_device_id).use()
+    free_bytes, _ = cp.cuda.runtime.memGetInfo()
+    # Input stack: float64 pattern per item.  The per-pattern ROI workspace is
+    # allocated while that stack is resident; reserve it independently.
+    pattern_bytes = int(np.prod(pattern_shape)) * np.dtype(np.float64).itemsize
+    roi_bytes = int(roi_count * roi_size * roi_size * (8 + 16 + 8))
+    reserve = max(128 * 1024**2, roi_bytes * 2)
+    usable = max(0, int(free_bytes * safety_fraction) - reserve)
+    capacity = max(1, usable // max(1, pattern_bytes))
+    if requested in (None, "auto"):
+        return int(min(capacity, max_auto_batch))
+    requested = int(requested)
+    if requested < 1:
+        raise ValueError("gpu batch size must be positive or 'auto'")
+    return int(min(requested, capacity))
+

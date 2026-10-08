@@ -71,7 +71,7 @@ CONFIG = {
     "roi_device": "cpu",  # set "gpu" after installing matching CuPy
     "roi_gpu_device_id": 0,
     "roi_gpu_workers": 1,  # one process per GPU; use gpu_batch_size for throughput
-    "gpu_batch_size": 32,  # ROI GPU patterns uploaded per chunk; lower if VRAM is limited
+    "gpu_batch_size": "auto",  # or an integer; auto uses free VRAM with a safety margin
     "roi_layout": "annular",  # center plus one circular ring; "grid" uses a square layout
     "roi_size": None,  # explicit pixel override; None uses roi_size_percent
     "roi_size_percent": 25.0,  # ROI width as a percentage of pattern width
@@ -744,6 +744,16 @@ def run(config=CONFIG):
             summary_path = output_dir / "scan_results.csv"
             if workers == 1:
                 global _H5_WORKER
+                if (method == "roi" and config.get("roi_device", "cpu") == "gpu"
+                        and config.get("gpu_batch_size", 1) in (None, "auto")):
+                    from pyhrebsd.correlation_gpu import recommend_gpu_batch_size
+                    config = dict(config)
+                    config["gpu_batch_size"] = recommend_gpu_batch_size(
+                        (side // int(config.get("pattern_binning", 1)),
+                         side // int(config.get("pattern_binning", 1))),
+                        config["roi_size"], config["roi_count"],
+                        requested="auto", gpu_device_id=config.get("roi_gpu_device_id", 0))
+                    print(f"GPU ROI batch size: {config['gpu_batch_size']} patterns")
                 _H5_WORKER = _make_h5_context(reader, reference_index, material, config, pc_plane)
                 if (method == "roi" and config.get("roi_device", "cpu") == "gpu"
                         and int(config.get("gpu_batch_size", 1)) > 1):

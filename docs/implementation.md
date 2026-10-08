@@ -182,7 +182,7 @@ CPU mode uses NumPy FFTs. GPU mode uses CuPy for remapping, ROI FFTs,
 cross-correlations, and subpixel peak fitting. The small tensor solve remains
 on the CPU.
 
-For a full scan, ROI GPU analysis can upload patterns in chunks using `gpu_batch_size` (32 by default). The reference FFT cache stays resident on the GPU, and one CUDA worker is preferred per GPU; reduce the batch size if VRAM is limited.
+For a full scan, ROI GPU analysis can upload patterns in chunks using `gpu_batch_size` (`"auto"` by default, capped at 64 patterns). The reference FFT cache stays resident on the GPU, and one CUDA worker is preferred per GPU; reduce the batch size if VRAM is limited.
 
 ## Homography method
 
