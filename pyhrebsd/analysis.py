@@ -425,6 +425,7 @@ def analyze_pair(
     if len(second_centers) < 4:
         raise ValueError("remapping places too many ROIs outside the scan")
     if device == "gpu":
+        from .correlation_gpu import measure_pattern_shifts_gpu
         residual_shifts = measure_pattern_shifts_gpu(
             ref, remapped, second_centers, roi_size, gpu_device_id=gpu_device_id,
             subpixel_method=subpixel_method, **options)
