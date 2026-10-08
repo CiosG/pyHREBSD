@@ -40,8 +40,8 @@ CONFIG = {
     "material_name": "silicon",  # database key or the full material name
     "reference_map_point": None,  # None uses first stored pattern; or zero-based (column, row)
     "pattern_binning": 1,  # use 2, 4, or 8 for block-averaged patterns
-    "edax_up2_file": None,  # when input_file is .ang: optional .up2 path; None uses the same stem
-    "edax_ang_file": None,  # when input_file is .up2: optional .ang path; None uses the same stem
+    "edax_up2_file": None,  # input_file="map.ang" auto-uses "map.up2"; set a path if different
+    "edax_ang_file": None,  # input_file="map.up2" auto-uses "map.ang"; set a path if different
     "edax_preprocess_device": "cpu",  # CPU or GPU for processed EDAX patterns
 
     # Calibration settings; used only for run_mode="calibration".
