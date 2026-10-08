@@ -53,7 +53,7 @@ pattern, Euler, phase, IQ, PC-calibration, and geometry fields to the common
 reader API. `UP2Reader` reads the little-endian uint16 pattern records by
 memory mapping the payload. An `.ang` input automatically uses the companion
 `.up2`; an `.up2` may be used alone when map dimensions and geometry are
-available in its header or configuration.
+available in its header, companion ANG, or configuration.
 
 ANG Euler angles are interpreted as radians, while the numeric ANG metadata
 for sample tilt, camera elevation, and pattern centre uses EDAX's degree and

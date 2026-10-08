@@ -405,6 +405,19 @@ class UP2Reader(_EDAXReaderBase):
         self._init_common(path, pattern_type, processing_device, gpu_device_id,
                           lmsd_sigma_factor, lmsd_radius_factor, lmsd_edge_mode,
                           lmsd_clip_percentile)
+        candidate = Path(ang_path) if ang_path else self.path.with_suffix(".ang")
+        self._ang_path = candidate if candidate.exists() else None
+        self._ang = _parse_ang(self._ang_path) if self._ang_path else None
+        # UP2 v1 stores only pattern dimensions; ANG carries the map metadata.
+        if self._ang is not None:
+            map_width = map_width if map_width is not None else _ang_value(self._ang, "NCOLS_ODD", cast=int)
+            map_height = map_height if map_height is not None else _ang_value(self._ang, "NROWS", cast=int)
+            step_x = step_x if step_x is not None else _ang_value(self._ang, "XSTEP")
+            step_y = step_y if step_y is not None else _ang_value(self._ang, "YSTEP")
+            if grid is None:
+                ang_grid = _ang_value(self._ang, "GRID", default="", cast=str).lower()
+                if ang_grid:
+                    grid = "hex" if "hex" in ang_grid else "square"
         self._header = _read_up2_header(self.path, map_width, map_height, step_x, step_y, grid)
         source_indices, self.x_cells, self.y_cells = _up2_indices(self._header)
         self._indices = source_indices
@@ -413,9 +426,6 @@ class UP2Reader(_EDAXReaderBase):
         self._patterns = np.memmap(self.path, dtype="<u2", mode="r",
                                    offset=self._header.offset,
                                    shape=(self._header.count, self.height, self.width))
-        candidate = Path(ang_path) if ang_path else self.path.with_suffix(".ang")
-        self._ang_path = candidate if candidate.exists() else None
-        self._ang = _parse_ang(self._ang_path) if self._ang_path else None
         if self._ang is not None and len(self._ang.data) != self._header.count:
             raise ValueError("ANG and UP2 contain different numbers of patterns")
         self._load_ang_metadata()

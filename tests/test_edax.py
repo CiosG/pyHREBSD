@@ -27,6 +27,10 @@ class EDAXReaderTests(unittest.TestCase):
             for name, value in (("x-star", .45), ("y-star", .53), ("z-star", .65)):
                 pc.create_dataset(name, data=value)
 
+    def _write_ang(self, path, metadata=""):
+        rows = "\n".join(f"0 0 0 0 0 {i} 0 0" for i in range(6))
+        path.write_text(metadata + "# COLUMN_HEADERS: phi1, PHI, phi2, x, y, IQ, CI, Phase\n" + rows)
+
     def test_oh5_reader(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "scan.oh5"
@@ -47,15 +51,26 @@ class EDAXReaderTests(unittest.TestCase):
             header += struct.pack("<2I", 3, 2) + bytes([0]) + struct.pack("<2d", 1.0, 1.0)
             up2.write_bytes(header + payload)
             ang = directory / "scan.ang"
-            rows = "\n".join(f"0 0 0 0 0 {i} 0 0" for i in range(6))
-            ang.write_text("# COLUMN_HEADERS: phi1, PHI, phi2, x, y, IQ, CI, Phase\n"
-                           "# x-star: 0.45\n# y-star: 0.53\n# z-star: 0.65\n"
-                           "# SampleTiltAngle: 70\n# CameraElevationAngle: 10\n" + rows)
+            self._write_ang(ang, "# x-star: 0.45\n# y-star: 0.53\n# z-star: 0.65\n"
+                            "# SampleTiltAngle: 70\n# CameraElevationAngle: 10\n")
             with open_edax(ang, "unprocessed") as reader:
                 self.assertEqual((reader.count, reader.x_cells, reader.y_cells), (6, 3, 2))
                 self.assertEqual(reader.pattern(5).shape, (8, 8))
                 self.assertEqual(reader.map_index(2, 1), 5)
                 self.assertAlmostEqual(reader.camera_elevation_degrees(), 10.0)
+
+    def test_ang_supplies_up2_v1_map_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            up2 = directory / "v1.up2"
+            payload = np.arange(6 * 8 * 8, dtype=np.uint16).tobytes()
+            up2.write_bytes(struct.pack("<4I", 1, 8, 8, 16) + payload)
+            ang = directory / "v1.ang"
+            self._write_ang(ang, "# NCOLS_ODD: 3\n# NROWS: 2\n# XSTEP: 1\n# YSTEP: 1\n"
+                            "# GRID: SqrGrid\n# x-star: 0.45\n# y-star: 0.53\n# z-star: 0.65\n")
+            with open_edax(ang, "unprocessed") as reader:
+                self.assertEqual((reader.count, reader.x_cells, reader.y_cells), (6, 3, 2))
+                self.assertEqual(reader.map_index(2, 1), 5)
 
 
 if __name__ == "__main__":
