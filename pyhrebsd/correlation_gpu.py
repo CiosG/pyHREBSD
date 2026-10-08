@@ -83,7 +83,8 @@ def measure_pattern_shifts_gpu(reference, scan, centers, roi_size, *,
                                frequency_filter=None, window=None,
                                scan_centers=None, prepared_reference=None,
                                gpu_device_id=0,
-                               subpixel_method="parabolic_1d"):
+                               subpixel_method="parabolic_1d",
+                               return_gpu=False):
     """Return CPU-compatible ROI measurements from batched CUDA FFTs."""
     ref = np.asarray(reference, dtype=np.float64)
     cp = _cupy()
@@ -195,7 +196,10 @@ def measure_pattern_shifts_gpu(reference, scan, centers, roi_size, *,
     confidence = cp.where(spread > 0,
                            (correlation.max(axis=(1, 2))
                             -correlation.mean(axis=(1, 2)))/spread, 0)
-    measured = cp.asnumpy(cp.stack((dx, dy, coefficient, confidence), axis=1))
+    measured_gpu = cp.stack((dx, dy, coefficient, confidence), axis=1)
+    if return_gpu:
+        return measured_gpu
+    measured = cp.asnumpy(measured_gpu)
     return [CorrelationResult(float(x), float(y), *map(float, values))
             for (x, y), values in zip(points, measured)]
 
@@ -229,12 +233,16 @@ def measure_pattern_shifts_gpu_batch(
     # Upload the complete chunk once.  Individual calls below operate on GPU
     # views, so no additional host transfer is made for each pattern.
     scans_gpu = cp.asarray(values, dtype=cp.float64)
-    results = []
+    measured_gpu = []
     for index in range(values.shape[0]):
         current_centers = target_points if target_points.ndim == 2 else target_points[index]
-        results.append(measure_pattern_shifts_gpu(
+        measured_gpu.append(measure_pattern_shifts_gpu(
             reference, scans_gpu[index], points, roi_size,
             frequency_filter=frequency_filter, window=window,
             scan_centers=current_centers, prepared_reference=prepared_reference,
-            gpu_device_id=gpu_device_id, subpixel_method=subpixel_method))
-    return results
+            gpu_device_id=gpu_device_id, subpixel_method=subpixel_method,
+            return_gpu=True))
+    measured = cp.asnumpy(cp.stack(measured_gpu, axis=0))
+    return [[CorrelationResult(float(x), float(y), *map(float, row))
+             for (x, y), row in zip(points, measured[index])]
+            for index in range(values.shape[0])]
