@@ -15,6 +15,7 @@ from pyhrebsd.h5oina import H5OINAReader
 from pyhrebsd.edax import open_edax
 from pyhrebsd.tfs import TFSReader
 from pyhrebsd.homography import _ray_matrix, analyze_homography, prepare_homography
+from pyhrebsd.hybrid import roi_remapped_initial_homography
 from pyhrebsd.io import read_pattern
 from pyhrebsd.pc_calibration import (fit_pc_plane, measure_effective_pixel_size,
                                    measure_effective_pixel_size_homography,
@@ -32,7 +33,7 @@ CONFIG = {
     "output_dir": "results_roi_cpu",  # must be new; existing results are not overwritten
 
     # Required for run_mode="analysis".
-    "analysis_method": "roi",  # "roi" or whole-pattern "homography"
+    "analysis_method": "roi",  # "roi", "homography", or "hybrid" (ROI-remap start + homography)
     "pattern_type": "processed",  # H5OINA: processed=stored 8-bit, unprocessed=raw 16-bit; TFS: processed only
     # BCF: processed=dynamic-LMSD 8-bit in memory, unprocessed=raw intensity plus selected correction
     "h5_pc_source": "ebsd",  # H5OINA: "ebsd" or "data_processing" (including MapSweeper PC); other readers select their source
@@ -88,6 +89,10 @@ CONFIG = {
     "homography_gpu_batch_size": 1,  # use 2 only after checking available VRAM
     "homography_margin_fraction": 0.08,
     "homography_max_iterations": 250,  # upper limit; fitting stops on convergence
+    "homography_prealignment": "none",  # "roi_remap" enables the hybrid start
+    "homography_prealignment_roi_count": 8,
+    "homography_prealignment_roi_size_percent": 25.0,
+    "homography_prealignment_roi_layout": "annular",
 
     # Optional grain segmentation.
     "detect_grains": True,
@@ -361,9 +366,16 @@ def _save_result(result, output_dir, name, source, material):
 
 
 def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, config,
-             prepared=None, initial_shifts=None, initial_homography=None):
+             prepared=None, initial_shifts=None, initial_homography=None, prealignment=None, registration=None):
     method = config.get("analysis_method", "roi")
     if method == "homography":
+        if initial_homography is None and config.get("homography_prealignment", "none") == "roi_remap":
+            try:
+                initial_homography = roi_remapped_initial_homography(
+                    reference, scan, reference_pc, scan_pc, orientation, material,
+                    config, prealignment)
+            except (ValueError, np.linalg.LinAlgError):
+                initial_homography = None
         return analyze_homography(
             reference, scan, reference_pc, scan_pc, orientation,
             np.deg2rad(config["sample_tilt_degrees"]),
@@ -374,7 +386,7 @@ def _analyze(reference, scan, reference_pc, scan_pc, orientation, material, conf
             phosphor_to_sample=config.get("phosphor_to_sample"),
             device=config.get("homography_device", "cpu"),
             gpu_device_id=config.get("homography_gpu_device_id", 0),
-            registration=initial_homography)
+            registration=registration, initial_homography=initial_homography)
     if method != "roi":
         raise ValueError("analysis_method must be 'roi' or 'homography'")
     return analyze_pair(
@@ -507,11 +519,20 @@ def _make_h5_context(reader, reference_index, material, config, pc_plane=None):
                                  config["roi_filter"], config.get("roi_layout", "grid"),
                                  config.get("roi_device", "cpu"),
                                  config.get("roi_gpu_device_id", 0)))
+    prealignment = None
+    if (config.get("analysis_method", "roi") == "homography" and
+            config.get("homography_prealignment", "none") == "roi_remap"):
+        size = roi_size_from_percent(
+            reference.shape, config.get("homography_prealignment_roi_size_percent", 25.0))
+        prealignment = prepare_analysis(
+            reference, size, int(config.get("homography_prealignment_roi_count", 8)),
+            config.get("roi_filter"), config.get("homography_prealignment_roi_layout", "annular"),
+            config.get("homography_device", "cpu"), config.get("homography_gpu_device_id", 0))
     return {"reader": reader, "reference": reference, "reference_pc": reference_pc,
             "static_background": static_background,
             "pc_plane": pc_plane,
-            "orientation": orientation, "prepared": prepared, "material": material,
-            "config": config}
+            "orientation": orientation, "prepared": prepared, "prealignment": prealignment,
+            "material": material, "config": config}
 
 
 def _init_h5_worker(path, reference_index, material, config, pc_plane):
@@ -531,7 +552,7 @@ def _analyze_h5_index(index):
             raise ValueError("pattern center missing; set pattern_center_fallback")
         result = _analyze(context["reference"], scan, context["reference_pc"], scan_pc,
                           context["orientation"], context["material"], context["config"],
-                          context["prepared"])
+                          context["prepared"], prealignment=context.get("prealignment"))
         return index, result, scan_pc, None
     except (ValueError, np.linalg.LinAlgError) as exc:
         return index, None, None, str(exc)
@@ -657,8 +678,18 @@ def _analyze_homography_batches(indices, batch_size):
             except (ValueError, np.linalg.LinAlgError) as exc:
                 errors[index] = str(exc)
         if scans:
-            initials = [_homography_initial(reference.shape, reference_pc, pc,
-                                            context["orientation"], config) for pc in pcs]
+            initials = []
+            for scan, pc in zip(scans, pcs):
+                initial = None
+                if config.get("homography_prealignment", "none") == "roi_remap":
+                    try:
+                        initial = roi_remapped_initial_homography(
+                            reference, scan, reference_pc, pc, context["orientation"],
+                            context["material"], config, context.get("prealignment"))
+                    except (ValueError, np.linalg.LinAlgError):
+                        initial = None
+                initials.append(initial if initial is not None else _homography_initial(
+                    reference.shape, reference_pc, pc, context["orientation"], config))
             registrations = register_gpu_homography_batch(
                 prepared, np.stack(scans), initials,
                 max_iterations=config.get("homography_max_iterations", 40),
@@ -674,7 +705,7 @@ def _analyze_homography_batches(indices, batch_size):
             try:
                 result = _analyze(reference, scans[number], reference_pc, pcs[number],
                                   context["orientation"], context["material"], config,
-                                  prepared, initial_homography=registrations[number])
+                                  prepared, registration=registrations[number])
                 yield index, result, pcs[number], None
                 number += 1
             except (ValueError, np.linalg.LinAlgError) as exc:
@@ -702,6 +733,10 @@ def run(config=CONFIG):
     mode = config.get("input_mode",
                       "dataset" if ("input_file" in config or "h5oina_file" in config)
                       else "images")
+    if config.get("analysis_method", "roi") == "hybrid":
+        config = dict(config)
+        config["analysis_method"] = "homography"
+        config["homography_prealignment"] = "roi_remap"
     if mode in ("dataset", "h5oina", "bcf"):
         path = _input_path(config)
         with _open_reader(path, config) as reader:
