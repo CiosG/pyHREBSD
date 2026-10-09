@@ -6,7 +6,8 @@ Instruments `.h5oina`, EDAX `.oh5`, `.ang` + `.up2`, and Bruker ESPRIT
 `.bcf` files directly and provides two complementary registration methods:
 
 - multi-ROI FFT cross-correlation with optional two-pass remapping;
-- whole-pattern inverse-compositional homography fitting.
+- whole-pattern inverse-compositional homography fitting;
+- optional hybrid mode: remapped ROI prealignment followed by homography, useful when patterns contain large strain or lattice rotation.
 
 Both methods run on CPU. CUDA acceleration is available through CuPy for ROI
 correlation, raw-pattern preprocessing, and homography fitting.

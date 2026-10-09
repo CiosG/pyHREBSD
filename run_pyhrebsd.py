@@ -93,6 +93,7 @@ CONFIG = {
     "homography_prealignment_roi_count": 8,
     "homography_prealignment_roi_size_percent": 25.0,
     "homography_prealignment_roi_layout": "annular",
+    "homography_warm_start": False,  # start each point from previous homography
 
     # Optional grain segmentation.
     "detect_grains": True,
@@ -550,9 +551,15 @@ def _analyze_h5_index(index):
         scan_pc = _h5_pc(reader, index, context["config"], context["pc_plane"])
         if scan_pc is None:
             raise ValueError("pattern center missing; set pattern_center_fallback")
+        warm_start = (context["config"].get("analysis_method", "roi") == "homography" and
+                      context["config"].get("homography_warm_start", False))
+        initial_homography = context.get("previous_homography") if warm_start else None
         result = _analyze(context["reference"], scan, context["reference_pc"], scan_pc,
                           context["orientation"], context["material"], context["config"],
-                          context["prepared"], prealignment=context.get("prealignment"))
+                          context["prepared"], initial_homography=initial_homography,
+                          prealignment=context.get("prealignment"))
+        if warm_start and hasattr(result, "homography"):
+            context["previous_homography"] = result.homography.copy()
         return index, result, scan_pc, None
     except (ValueError, np.linalg.LinAlgError) as exc:
         return index, None, None, str(exc)
@@ -810,7 +817,9 @@ def run(config=CONFIG):
                 suffix = "..." if len(missing) > 5 else ""
                 raise ValueError(f"scan indices without stored patterns: {preview}{suffix}")
             method = config.get("analysis_method", "roi")
-            if (method == "homography" and config.get("homography_device", "cpu") == "gpu"
+            if method == "homography" and config.get("homography_warm_start", False):
+                workers = 1
+            elif (method == "homography" and config.get("homography_device", "cpu") == "gpu"
                     and int(config.get("homography_gpu_batch_size", 1)) > 1):
                 workers = 1
             elif method == "homography" and config.get("homography_device", "cpu") == "gpu":
@@ -853,6 +862,7 @@ def run(config=CONFIG):
                         and int(config.get("gpu_batch_size", 1)) > 1):
                     results = _analyze_h5_batches(indices, int(config["gpu_batch_size"]))
                 elif (method == "homography" and config.get("homography_device", "cpu") == "gpu"
+                      and not config.get("homography_warm_start", False)
                       and int(config.get("homography_gpu_batch_size", 1)) > 1):
                     results = _analyze_homography_batches(
                         indices, int(config["homography_gpu_batch_size"]))
