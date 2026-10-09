@@ -69,6 +69,8 @@ For large ROI scans, set `roi_device="gpu"` and use `gpu_batch_size="auto"` to c
    orientation, and detector orientation from the dataset. The default
    `detector_geometry="full"` uses all three detector Euler angles for H5OINA
    and TFS when available. BCF provides elevation geometry only.
+For homography line scans, set `homography_warm_start=True` to initialize each point from the previous point's fitted homography. This is useful when neighboring patterns change smoothly. It requires sequential processing, so homography batching and parallel workers are disabled for that run.
+
 4. Select `"cpu"` or `"gpu"` separately for the chosen registration method.
    CPU analysis defaults to the number of logical processors minus one;
    set `workers=1` when validating a new configuration.
