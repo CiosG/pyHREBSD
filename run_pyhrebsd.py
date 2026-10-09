@@ -85,7 +85,7 @@ CONFIG = {
     "homography_device": "cpu",  # set "gpu" after installing matching CuPy
     "homography_gpu_device_id": 0,
     "homography_gpu_workers": 4,
-    "homography_gpu_batch_size": 4,  # concurrent CUDA streams per batch
+    "homography_gpu_batch_size": 1,  # use 2 only after checking available VRAM
     "homography_margin_fraction": 0.08,
     "homography_max_iterations": 250,  # upper limit; fitting stops on convergence
 

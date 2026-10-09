@@ -169,12 +169,22 @@ def register_gpu_homography_batch(plan, scans, initials=None, *, max_iterations=
             raise ValueError("initials must contain one homography per scan")
     cp.cuda.Device(device_id).use()
     scans_gpu = cp.asarray(values, dtype=cp.float64)
-    streams = [cp.cuda.Stream(non_blocking=True) for _ in range(min(max_workers, values.shape[0]))]
+    streams = [cp.cuda.Stream(non_blocking=True)
+               for _ in range(min(max(1, int(max_workers)), values.shape[0]))]
     def one(index):
         stream = streams[index % len(streams)]
         return register_gpu_homography(
             plan, scans_gpu[index], initial_list[index], max_iterations=max_iterations,
             tolerance=tolerance, background_sigma=background_sigma, stream=stream)
-    with ThreadPoolExecutor(max_workers=len(streams)) as executor:
-        futures = [executor.submit(one, index) for index in range(values.shape[0])]
-        return [future.result() for future in futures]
+    try:
+        with ThreadPoolExecutor(max_workers=len(streams)) as executor:
+            futures = [executor.submit(one, index) for index in range(values.shape[0])]
+            return [future.result() for future in futures]
+    finally:
+        # Every registration synchronizes before returning its CPU result. Release
+        # temporary arrays and cached blocks between chunks so long scans do not
+        # exhaust an 8 GB card.
+        cp.cuda.Device(device_id).synchronize()
+        del scans_gpu, streams
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
